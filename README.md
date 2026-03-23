@@ -1,27 +1,27 @@
 # Context Lens
 
 > CLI local que indexa seu projeto e monta contexto otimizado para assistentes de IA.
-> Envia só o que importa — não o projeto inteiro.
+> O assistente vê só o que importa — não o projeto inteiro.
 
-**Economia real: 75–98% de tokens** comparado a colar arquivos manualmente.
+**Economia real: 75–98% de tokens** por query.
 
 ---
 
 ## Como funciona
 
-Assistentes como Claude Code e Copilot têm limite de contexto (tokens). Quando você cola arquivos inteiros, gasta tokens com código irrelevante e chega no limite rápido.
+Assistentes como Claude Code e Copilot têm limite de contexto (tokens). Quanto maior o projeto, mais código irrelevante entra na janela, e as respostas ficam genéricas.
 
 O `lens` resolve em duas etapas:
 
-**1. Indexação — roda uma vez por projeto**
-Lê todos os arquivos e extrai só os símbolos: nome de funções, classes, parâmetros, docstrings, número de linha. Salva num banco SQLite local em `.ctx/index.db`.
+**1. Indexação — uma vez por projeto**
+Lê todos os arquivos e extrai só os símbolos: funções, classes, parâmetros, docstrings, número de linha. Salva num banco SQLite local em `.ctx/index.db`.
 
-**2. Busca na hora da query**
-Você descreve o que quer. O `lens` busca no índice os símbolos e arquivos mais relevantes em ~0,2ms (sem ler disco) e monta um contexto focado dentro do seu orçamento de tokens.
+**2. Na hora da pergunta**
+Busca no índice os símbolos mais relevantes em ~0,2ms (sem ler disco) e monta um contexto focado dentro do orçamento de tokens. O assistente recebe só o trecho certo.
 
 ```
-Sem lens:  cola store.py + builder.py + search.py + ...  →  18.828 tokens
-Com lens:  "fix bug in upsert_file"  →  ~3.320 tokens    →  82% menos
+Sem lens:  assistente lê store.py + builder.py + search.py + ...  →  18.828 tokens
+Com lens:  "fix bug in upsert_file"                               →   3.320 tokens  (82% menos)
 ```
 
 O índice fica em `.ctx/` dentro de cada projeto e é ignorado pelo git.
@@ -33,7 +33,11 @@ O índice fica em `.ctx/` dentro de cada projeto e é ignorado pelo git.
 **Pré-requisito:** Python 3.10 ou superior.
 
 ```bash
+# Com suporte a tree-sitter (recomendado — parsing preciso)
 pip install "context-lens[parse]"
+
+# Com MCP server (para Claude Code e Continue.dev automáticos)
+pip install "context-lens[parse,mcp]"
 ```
 
 Verificar:
@@ -42,20 +46,20 @@ Verificar:
 lens --version
 ```
 
-> **Windows:** se `lens` não for reconhecido, adicione o diretório de scripts ao PATH:
+> **Windows:** se `lens` não for reconhecido após instalar, adicione o diretório de scripts ao PATH:
 > ```powershell
-> # Cole no terminal e feche/reabra
 > [Environment]::SetEnvironmentVariable("PATH",
->   $env:PATH + ";$env:APPDATA\..\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\Scripts",
+>   [Environment]::GetEnvironmentVariable("PATH","User") + ";$env:LOCALAPPDATA\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\Scripts",
 >   "User")
 > ```
+> Feche e reabra o terminal.
 
 **Do código-fonte:**
 
 ```bash
-git clone https://github.com/seu-usuario/context-lens
+git clone https://github.com/TiagoSchr/context-lens
 cd context-lens
-pip install -e ".[parse]"
+pip install -e ".[parse,mcp]"
 ```
 
 **Desinstalar:**
@@ -67,17 +71,17 @@ rm -rf .ctx/    # remove o índice do projeto (opcional)
 
 ---
 
-## Uso diário — 3 comandos
+## Uso diário
 
 ```bash
 cd seu-projeto/
 
-lens index                                    # indexa o projeto (primeira vez e após mudanças)
-lens status                                   # confere economia de tokens e saúde do índice
-lens context "sua pergunta aqui"              # gera contexto → cole no Claude/Copilot
+lens index                                     # indexa o projeto (primeira vez e após mudanças)
+lens status                                    # economia de tokens e saúde do índice
+lens context "sua pergunta"                    # gera contexto → cole no assistente
 ```
 
-Exemplos reais:
+Exemplos:
 
 ```bash
 lens context "fix bug in checkout returning wrong total"
@@ -94,19 +98,14 @@ O `lens` funciona **por projeto**, igual ao `git`. Para cada projeto novo:
 
 ```bash
 cd meu-novo-projeto/
-lens index           # cria .ctx/ nesta pasta e indexa
-lens status          # confirma que está ativo
+lens index      # cria .ctx/ aqui e indexa
+lens status     # confirma que está ativo
 ```
 
-Não há configuração global — cada projeto tem seu próprio índice em `.ctx/`.
+Não há configuração global. Cada projeto tem seu próprio índice em `.ctx/`.
 
-**Como saber que está ativo:**
+**Como confirmar que está ativo:**
 
-```bash
-lens status
-```
-
-Saída esperada:
 ```
   Context Lens  /  meu-projeto
   ----------------------------------
@@ -116,22 +115,22 @@ Saída esperada:
   All time   18 queries   saved ~60,000 tokens  (82%)
 ```
 
-Se aparecer `Index not found — run: lens index`, basta rodar `lens index`.
+Se aparecer `Index not found`, rode `lens index`.
 
 ---
 
-## Integração via MCP (Claude Code — automático)
+## Integrações com assistentes de IA
 
-O jeito mais poderoso. Com o MCP server, o Claude Code consulta o índice automaticamente a cada pergunta — sem você precisar rodar nada.
+### Claude Code — automático via MCP
 
-**Instalação:**
+Com o MCP server, o Claude Code consulta o índice automaticamente a cada pergunta.
 
+**1.** Instale com MCP:
 ```bash
 pip install "context-lens[parse,mcp]"
 ```
 
-**Configuração** — crie `.claude/mcp.json` na raiz do projeto:
-
+**2.** Crie `.claude/mcp.json` na raiz do projeto:
 ```json
 {
   "mcpServers": {
@@ -143,159 +142,124 @@ pip install "context-lens[parse,mcp]"
 }
 ```
 
-Pronto. O Claude Code detecta o servidor automaticamente e passa a usar as ferramentas:
+Pronto. O Claude Code passa a usar automaticamente:
+- `lens_search` — busca símbolos relevantes
+- `lens_context` — monta contexto otimizado
+- `lens_status` — economia de tokens
 
-- `lens_search("query")` — busca símbolos relevantes
-- `lens_context("query", "task")` — monta contexto otimizado
-- `lens_status()` — mostra economia de tokens
+O servidor usa ~5MB RAM, responde em ~1ms, comunica via stdio (sem HTTP, sem porta aberta).
 
-O servidor é leve: ~5MB RAM, resposta em ~1ms, comunicação via stdio (sem HTTP, sem porta aberta).
-
----
-
-## Integração com Claude Code CLI (slash commands)
-
-Sem MCP, use os slash commands incluídos em `.claude/commands/`:
-
+**Sem MCP**, use os slash commands incluídos em `.claude/commands/`:
 ```
-/ctx fix the bug in parse_file        ← gera e mostra o contexto
-/status                               ← mostra economia de tokens
-/reindex                              ← re-indexa o projeto
-```
-
-Ou via script com clipboard automático:
-
-```bash
-python scripts/ctx-for-claude.py "fix the bug in extract_symbols"
-# Cole com Ctrl+V no Claude Code CLI
+/ctx fix the bug in parse_file    ← gera e mostra o contexto
+/status                           ← economia de tokens
+/reindex                          ← re-indexa o projeto
 ```
 
 ---
 
-## Integração com GitHub Copilot (VS Code)
+### GitHub Copilot (VS Code)
 
-**Opção 1 — Atalho de teclado (recomendado):**
+**Atalho:** `Ctrl+Shift+L` → digita a query → contexto gerado e aberto no editor automaticamente. O Copilot lê o arquivo aberto como contexto.
 
-Pressione `Ctrl+Shift+L` no VS Code → digita sua query → o contexto é gerado e aberto automaticamente. O Copilot lê o arquivo aberto como contexto.
-
-**Opção 2 — Script:**
-
+**Script:**
 ```bash
 python scripts/lens-context.py "fix bug in checkout" --target copilot
-# Gera contexto e abre .ctx/ctx.md no VS Code automaticamente
+# Gera .ctx/ctx.md e abre no VS Code
 ```
 
-**Opção 3 — Task do VS Code:**
-
-`Ctrl+Shift+P` → "Tasks: Run Task" → "Context Lens: Copilot — gerar contexto"
+**Task:** `Ctrl+Shift+P` → "Tasks: Run Task" → "Context Lens: Copilot — gerar contexto"
 
 ---
 
-## Integração com ChatGPT / OpenAI Codex
+### ChatGPT / OpenAI Codex
 
 ```bash
 python scripts/lens-context.py "fix bug in checkout" --target chatgpt
-# Copia para clipboard + abre link direto no ChatGPT
+# Copia contexto para clipboard + abre link direto no ChatGPT
 # Cole com Ctrl+V e converse normalmente
 ```
 
-O script detecta automaticamente o ambiente (`--target auto` é o padrão):
-- Dentro do VS Code → modo Copilot
-- Terminal externo → copia para clipboard
+O script detecta o ambiente automaticamente (`--target auto` é o padrão):
+- Dentro do VS Code → modo Copilot (abre arquivo)
+- Terminal externo → clipboard
 
 ---
 
-## Integração com Continue.dev (VS Code)
+### Continue.dev (VS Code)
 
-O [Continue.dev](https://continue.dev) suporta MCP nativamente. O arquivo `.continue/config.json` já está incluído no projeto — basta instalar a extensão Continue no VS Code e o `lens-mcp` é detectado automaticamente.
-
-3. Faça sua pergunta no Copilot Chat com o arquivo visível.
-
-> **Dica:** Para o Copilot, use `-t navigate` para uma lista compacta de assinaturas — cabe facilmente sem saturar o contexto.
+O [Continue.dev](https://continue.dev) suporta MCP nativamente. O arquivo `.continue/config.json` já está incluído — basta instalar a extensão Continue no VS Code e o `lens-mcp` é detectado automaticamente.
 
 ---
 
-## Integração com OpenAI Codex / ChatGPT no VS Code
+### Cursor
 
-Funciona da mesma forma: gere o contexto com `lens context`, abra o arquivo `.md` gerado no editor ou cole no chat. O `lens` é agnóstico de assistente — gera texto puro compatível com qualquer IA.
+Acesse Settings → MCP e adicione:
+```json
+{
+  "name": "context-lens",
+  "command": "lens-mcp",
+  "args": []
+}
+```
 
 ---
 
-## Como saber que está economizando tokens
+## Resumo de compatibilidade
+
+| Assistente | Modo | Automático? |
+|------------|------|-------------|
+| Claude Code CLI/IDE | MCP server | ✅ 100% automático |
+| Continue.dev (VS Code) | MCP server | ✅ 100% automático |
+| Cursor | MCP server | ✅ Um config |
+| GitHub Copilot | `Ctrl+Shift+L` + arquivo | ✅ Um atalho |
+| ChatGPT / Codex | script + clipboard | ✅ Um comando |
+
+---
+
+## Economia de tokens por tipo de tarefa
+
+| Tarefa | Quando usar | Economia típica |
+|--------|-------------|-----------------|
+| `navigate` | "onde está X definido?" | **86–98%** |
+| `generate_test` | "escreva testes para X" | **70–98%** |
+| `explain` | "como funciona X?" | **47–79%** |
+| `refactor` | "refatora X" | **74–80%** |
+| `bugfix` | "corrige bug em X" | **25–65%** |
+
+A tarefa é detectada automaticamente pela query. Use `-t` para forçar:
 
 ```bash
-lens status
+lens context "fix bug in checkout" -t bugfix --file src/cart.py
 ```
 
-```
-  -- Economy -----------------------
-  This session    5 queries   saved ~16,515 tokens  (47%)
-  All time       23 queries   saved ~77,003 tokens  (48%)
-
-  -- By task  (all time) -----------
-  Task               n   Avg used   Saved
-  navigate           3     1017t     86%  ########..
-  generate_test      5     2132t     70%  ######....
-  explain            5     3701t     47%  ####......
-  bugfix            10     5270t     25%  ##........
-```
-
-```bash
-lens log          # histórico detalhado de todas as queries
-```
-
-A economia aumenta quanto maior o projeto — num projeto com 400 arquivos, `navigate` economiza até 98%.
-
----
-
-## Tipos de tarefa e quando usar
-
-| Tarefa | Quando | Tokens usados | Economia típica |
-|--------|--------|--------------|-----------------|
-| `navigate` | "onde está X definido?" | mínimo — só assinaturas | **86–98%** |
-| `generate_test` | "escreva testes para X" | fonte do símbolo | **70–98%** |
-| `explain` | "como funciona X?" | estrutura + skeleton | **47–79%** |
-| `refactor` | "refatora X" | estrutura + código | **74–80%** |
-| `bugfix` | "corrige bug em X" | código completo | **25–65%** |
-
-Se `-t` for omitido, a tarefa é detectada automaticamente pela query.
-
-**Por que bugfix economiza menos?**
-Para corrigir um bug o Claude precisa ver o código real, não só as assinaturas. O `lens` inclui o código-fonte completo dos arquivos mais relevantes — ainda assim economiza comparado a colar tudo.
-
-**Bug que cruza múltiplos arquivos:**
-
-```bash
-lens context "fix bug in checkout" -t bugfix --file src/cart.py --file src/discount.py
-```
-
-Use `--file` para forçar a inclusão de arquivos específicos quando o bug envolve mais de um arquivo.
+`--file` força a inclusão de um arquivo específico — útil quando o bug cruza múltiplos arquivos.
 
 ---
 
 ## Todos os comandos
 
 ```bash
-lens index                          # indexação incremental (só re-indexa arquivos alterados)
-lens index --force                  # re-indexa tudo do zero
-lens index --verbose                # mostra cada arquivo processado
-lens status                         # saúde do índice + economia de tokens
-lens watch                          # monitora mudanças e re-indexa automaticamente
-lens stats                          # estatísticas: arquivos, símbolos, linguagens
-lens search "query"                 # busca símbolos por nome ou docstring
-lens context "query"                # monta contexto (tarefa auto-detectada)
-lens context "query" -t bugfix      # tarefa explícita
-lens context "query" --file x.py   # força inclusão de arquivo
-lens context "query" --budget 12000 # orçamento de tokens customizado
-lens context "query" -o out.md     # salva contexto em arquivo
-lens show map                       # mapa do projeto
-lens show symbol:nome               # detalhes de um símbolo
-lens show file:src/modulo.py        # símbolos de um arquivo
-lens log                            # histórico completo de queries e tokens
-lens log --last 10                  # últimas 10 queries
-lens memory list                    # lista memória do projeto
-lens memory set rule chave "valor"  # adiciona nota de memória
-lens config                         # configuração atual
+lens index                           # indexação incremental
+lens index --force                   # re-indexa tudo do zero
+lens index --verbose                 # mostra cada arquivo
+lens status                          # saúde + economia de tokens
+lens watch                           # monitora mudanças e re-indexa (background)
+lens stats                           # arquivos, símbolos, linguagens
+lens search "query"                  # busca símbolos
+lens context "query"                 # monta contexto (tarefa auto-detectada)
+lens context "query" -t bugfix       # tarefa explícita
+lens context "query" --file x.py    # força inclusão de arquivo
+lens context "query" --budget 12000  # orçamento customizado
+lens context "query" -o out.md      # salva em arquivo
+lens show map                        # mapa do projeto
+lens show symbol:nome                # detalhes de um símbolo
+lens show file:src/modulo.py         # símbolos de um arquivo
+lens log                             # histórico de queries e tokens
+lens log --last 10                   # últimas 10 queries
+lens memory list                     # lista memória do projeto
+lens memory set rule chave "valor"   # adiciona nota de memória
+lens config                          # configuração atual
 ```
 
 ---
@@ -345,11 +309,11 @@ Tudo em `.ctx/` é local e nunca vai para o git.
 | Operação | Velocidade |
 |----------|-----------|
 | Indexação completa | ~320 arquivos/seg |
-| Re-index (sem mudanças) | ~5.500 arquivos/seg |
+| Re-index incremental (sem mudanças) | ~5.500 arquivos/seg |
 | Busca FTS5 | ~0,2ms |
 | Montagem de contexto | ~1–5ms |
-| RAM durante indexação | ~2MB |
-| Projeto com 640 arquivos / 7.000 símbolos | FTS < 5ms |
+| RAM durante uso | ~3–5MB |
+| Escala | testado com 640 arquivos / 7.000 símbolos |
 
 ---
 
