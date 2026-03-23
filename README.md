@@ -174,14 +174,40 @@ python scripts/ctx-for-claude.py "fix the bug in extract_symbols"
 
 ## Integração com GitHub Copilot (VS Code)
 
-O Copilot não suporta MCP ainda. Use via arquivo:
+**Opção 1 — Atalho de teclado (recomendado):**
 
-1. Gere o contexto:
-   ```bash
-   lens context "fix bug in parse_file" -t bugfix -o .ctx/ctx.md
-   ```
+Pressione `Ctrl+Shift+L` no VS Code → digita sua query → o contexto é gerado e aberto automaticamente. O Copilot lê o arquivo aberto como contexto.
 
-2. Abra `.ctx/ctx.md` no VS Code — o Copilot inclui arquivos abertos no contexto automaticamente.
+**Opção 2 — Script:**
+
+```bash
+python scripts/lens-context.py "fix bug in checkout" --target copilot
+# Gera contexto e abre .ctx/ctx.md no VS Code automaticamente
+```
+
+**Opção 3 — Task do VS Code:**
+
+`Ctrl+Shift+P` → "Tasks: Run Task" → "Context Lens: Copilot — gerar contexto"
+
+---
+
+## Integração com ChatGPT / OpenAI Codex
+
+```bash
+python scripts/lens-context.py "fix bug in checkout" --target chatgpt
+# Copia para clipboard + abre link direto no ChatGPT
+# Cole com Ctrl+V e converse normalmente
+```
+
+O script detecta automaticamente o ambiente (`--target auto` é o padrão):
+- Dentro do VS Code → modo Copilot
+- Terminal externo → copia para clipboard
+
+---
+
+## Integração com Continue.dev (VS Code)
+
+O [Continue.dev](https://continue.dev) suporta MCP nativamente. O arquivo `.continue/config.json` já está incluído no projeto — basta instalar a extensão Continue no VS Code e o `lens-mcp` é detectado automaticamente.
 
 3. Faça sua pergunta no Copilot Chat com o arquivo visível.
 
