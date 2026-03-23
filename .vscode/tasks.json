@@ -1,5 +1,12 @@
 {
   "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "lensQuery",
+      "type": "promptString",
+      "description": "Descreva o que voce quer fazer (ex: fix the bug in extract_symbols)"
+    }
+  ],
   "tasks": [
     {
       "label": "Context Lens: auto-index on open",
@@ -33,6 +40,28 @@
       "presentation": {
         "reveal": "silent",
         "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Context Lens: Copilot — gerar contexto",
+      "type": "shell",
+      "command": "lens context \"${input:lensQuery}\" -o .ctx/ctx.md && code .ctx/ctx.md",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "close": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Context Lens: ChatGPT — copiar contexto",
+      "type": "shell",
+      "command": "python scripts/lens-context.py \"${input:lensQuery}\" --target chatgpt",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "close": false
       },
       "problemMatcher": []
     }

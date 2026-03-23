@@ -1,0 +1,7 @@
+[
+  {
+    "key": "ctrl+shift+l",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Context Lens: Copilot — gerar contexto"
+  }
+]

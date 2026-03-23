@@ -1,0 +1,9 @@
+{
+  "mcpServers": [
+    {
+      "name": "context-lens",
+      "command": "lens-mcp",
+      "args": []
+    }
+  ]
+}
