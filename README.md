@@ -120,21 +120,42 @@ Se aparecer `Index not found — run: lens index`, basta rodar `lens index`.
 
 ---
 
-## Integração com Claude Code CLI
+## Integração via MCP (Claude Code — automático)
 
-O jeito mais simples: gerar o contexto, copiar para o clipboard e colar no Claude.
+O jeito mais poderoso. Com o MCP server, o Claude Code consulta o índice automaticamente a cada pergunta — sem você precisar rodar nada.
+
+**Instalação:**
 
 ```bash
-# Gera contexto + copia automaticamente para o clipboard
-python scripts/ctx-for-claude.py "fix the bug in extract_symbols"
-python scripts/ctx-for-claude.py "explica o módulo de billing" --task explain
-
-# Cole com Ctrl+V no Claude Code CLI
+pip install "context-lens[parse,mcp]"
 ```
 
-**Ou use os slash commands** (já incluídos em `.claude/commands/`):
+**Configuração** — crie `.claude/mcp.json` na raiz do projeto:
 
-No Claude Code CLI, dentro do projeto:
+```json
+{
+  "mcpServers": {
+    "context-lens": {
+      "command": "lens-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Pronto. O Claude Code detecta o servidor automaticamente e passa a usar as ferramentas:
+
+- `lens_search("query")` — busca símbolos relevantes
+- `lens_context("query", "task")` — monta contexto otimizado
+- `lens_status()` — mostra economia de tokens
+
+O servidor é leve: ~5MB RAM, resposta em ~1ms, comunicação via stdio (sem HTTP, sem porta aberta).
+
+---
+
+## Integração com Claude Code CLI (slash commands)
+
+Sem MCP, use os slash commands incluídos em `.claude/commands/`:
 
 ```
 /ctx fix the bug in parse_file        ← gera e mostra o contexto
@@ -142,24 +163,18 @@ No Claude Code CLI, dentro do projeto:
 /reindex                              ← re-indexa o projeto
 ```
 
-Esses comandos funcionam automaticamente em qualquer projeto que tenha a pasta `.claude/commands/` com os arquivos do Context Lens.
+Ou via script com clipboard automático:
 
----
-
-## Integração com Claude Code IDE (VS Code)
-
-1. Gere o contexto e salve num arquivo:
-   ```bash
-   lens context "fix bug in upsert_file" -t bugfix -o .ctx/ctx.md
-   ```
-
-2. Abra `.ctx/ctx.md` no editor — o Claude Code IDE usa arquivos abertos como contexto.
-
-3. Ou cole diretamente no chat da extensão.
+```bash
+python scripts/ctx-for-claude.py "fix the bug in extract_symbols"
+# Cole com Ctrl+V no Claude Code CLI
+```
 
 ---
 
 ## Integração com GitHub Copilot (VS Code)
+
+O Copilot não suporta MCP ainda. Use via arquivo:
 
 1. Gere o contexto:
    ```bash

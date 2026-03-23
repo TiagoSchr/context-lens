@@ -40,6 +40,7 @@ parse = [
     "tree-sitter-cpp",
 ]
 tokens = ["tiktoken>=0.6"]
+mcp = ["mcp>=1.0"]
 dev = ["pytest>=7.0", "pytest-cov"]
 all = [
     "tree-sitter>=0.22",
@@ -55,8 +56,9 @@ all = [
 ]
 
 [project.scripts]
-lens = "ctx.cli:main"
-ctx  = "ctx.cli:main"
+lens     = "ctx.cli:main"
+ctx      = "ctx.cli:main"
+lens-mcp = "ctx.mcp:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ctx"]
