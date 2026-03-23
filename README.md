@@ -121,6 +121,16 @@ Se aparecer `Index not found`, rode `lens index`.
 
 ## Integrações com assistentes de IA
 
+Guias detalhados por assistente:
+
+- [Claude Code](docs/claude-code.md) — MCP automático, slash commands
+- [GitHub Copilot](docs/copilot.md) — atalho `Ctrl+Shift+L` + arquivo aberto
+- [ChatGPT / OpenAI Codex](docs/chatgpt-codex.md) — clipboard automático
+- [Cursor](docs/cursor.md) — MCP nativo
+- [Continue.dev](docs/continue-dev.md) — MCP nativo, open source
+
+---
+
 ### Claude Code — automático via MCP
 
 Com o MCP server, o Claude Code consulta o índice automaticamente a cada pergunta.
