@@ -1,7 +1,6 @@
 """Codex wrapper that generates context and opens ChatGPT."""
 from __future__ import annotations
 
-import subprocess
 import sys
 import webbrowser
 

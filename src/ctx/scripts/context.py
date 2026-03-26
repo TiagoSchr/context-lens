@@ -10,24 +10,40 @@ import urllib.parse
 from pathlib import Path
 
 
+def _run_lens_silent(args: list[str], cwd: Path) -> None:
+    """Chama lens via Python API (sem subprocess) com fallback para CLI."""
+    import io
+    import os
+    from contextlib import redirect_stderr, redirect_stdout
+    buf = io.StringIO()
+    old_cwd = os.getcwd()
+    try:
+        try:
+            from ctx import cli as _cli  # absolute (package instalado)
+        except ImportError:
+            from .. import cli as _cli  # relative (editable install)
+        os.chdir(str(cwd))
+        with redirect_stdout(buf), redirect_stderr(buf):
+            _cli.main.main(args=args, prog_name="lens", standalone_mode=False)
+    except Exception:
+        os.chdir(str(cwd))
+        subprocess.run(["lens"] + args, capture_output=True, cwd=str(cwd))
+    finally:
+        try:
+            os.chdir(old_cwd)
+        except Exception:
+            pass
+
+
 def ensure_index_ready() -> None:
     """Auto-init silencioso para uso zero-config em projetos novos."""
     db_file = Path.cwd() / ".ctx" / "index.db"
     if db_file.exists():
         return
-
-    ctx_dir = Path.cwd() / ".ctx"
-    if not ctx_dir.exists():
-        subprocess.run(
-            ["lens", "init"],
-            capture_output=True,
-            cwd=str(Path.cwd()),
-        )
-    subprocess.run(
-        ["lens", "index", "--quiet"],
-        capture_output=True,
-        cwd=str(Path.cwd()),
-    )
+    root = Path.cwd()
+    if not (root / ".ctx").exists():
+        _run_lens_silent(["init"], root)
+    _run_lens_silent(["index", "--quiet"], root)
 
 
 def copy_to_clipboard(text: str) -> bool:

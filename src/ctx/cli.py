@@ -296,10 +296,10 @@ def setup(auto, manual):
         click.echo(f"  Skipped  {', '.join(skipped)}  (lens_context already present)")
 
     if created:
-        click.echo(f"\n  Done. The AI will now call lens_context automatically.")
-        click.echo(f"  Run `lens index` first if you haven't already.\n")
+        click.echo("\n  Done. The AI will now call lens_context automatically.")
+        click.echo("  Run `lens index` first if you haven't already.\n")
     else:
-        click.echo(f"\n  All tools already configured.\n")
+        click.echo("\n  All tools already configured.\n")
 
 
 # ─────────────────────────────────────────────────────────── index
@@ -709,7 +709,7 @@ def status():
         click.echo(f"  Raw project  ~{raw_tokens:,} tokens  ({total_bytes // 1024} KB  /  {s['files']} files)")
         click.echo(f"  Lens budget  {budget:,} tokens")
         click.echo(f"  Est. saving  ~{pct:.0f}%  (~{raw_tokens - lens_tokens:,} tokens por query)")
-        click.echo(f"\n  Use MCP (lens_context) ou: lens context \"sua pergunta\"\n")
+        click.echo("\n  Use MCP (lens_context) ou: lens context \"sua pergunta\"\n")
         return
 
     # sessão = queries desde a última indexação
