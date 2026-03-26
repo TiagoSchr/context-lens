@@ -2,6 +2,11 @@
   {
     "key": "ctrl+shift+l",
     "command": "workbench.action.tasks.runTask",
-    "args": "Context Lens: Copilot — gerar contexto"
+    "args": "Context Lens: gerar contexto para Copilot"
+  },
+  {
+    "key": "ctrl+shift+k",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Context Lens: status"
   }
 ]

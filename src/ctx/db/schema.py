@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL = """
 PRAGMA journal_mode = WAL;
@@ -90,7 +90,22 @@ CREATE TABLE IF NOT EXISTS memory_lite (
 
 CREATE INDEX IF NOT EXISTS idx_memory_kind ON memory_lite(kind);
 CREATE INDEX IF NOT EXISTS idx_memory_key  ON memory_lite(key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_kind_key ON memory_lite(kind, key);
 """
+
+
+def _migrate(conn: "sqlite3.Connection", from_version: int) -> None:
+    if from_version < 2:
+        # Remove duplicates (keep latest id per kind+key) then add unique index
+        conn.execute(
+            "DELETE FROM memory_lite WHERE id NOT IN "
+            "(SELECT MAX(id) FROM memory_lite GROUP BY kind, key)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_kind_key ON memory_lite(kind, key)"
+        )
+        conn.execute("UPDATE schema_version SET version = 2")
+        conn.commit()
 
 
 def init_db(db_file: Path) -> sqlite3.Connection:
@@ -103,4 +118,6 @@ def init_db(db_file: Path) -> sqlite3.Connection:
     if row is None:
         conn.execute("INSERT INTO schema_version VALUES (?)", (SCHEMA_VERSION,))
         conn.commit()
+    elif row["version"] < SCHEMA_VERSION:
+        _migrate(conn, row["version"])
     return conn

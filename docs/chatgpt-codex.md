@@ -18,19 +18,18 @@ lens index
 ## Uso
 
 ```bash
-python scripts/lens-context.py "fix bug in checkout" --target chatgpt
+python scripts/lens-codex.py "fix bug in checkout"
 ```
 
 O script:
 1. Gera o contexto otimizado para a query
 2. Copia para o clipboard automaticamente
-3. Imprime o link direto para o ChatGPT
+3. Abre o ChatGPT no navegador
 
 ```
-[lens] target=chatgpt
+[lens] target=codex
 [ctx] task=bugfix | tokens=3320/8000
 [ctx] salvo em: .ctx/last_context.md
-[lens] Link ChatGPT: https://chat.openai.com/
 [ctx] contexto copiado para o clipboard — cole no ChatGPT!
 ```
 
@@ -42,11 +41,7 @@ O script:
 
 O script detecta o ambiente automaticamente com `--target auto` (padrão):
 
-```bash
-python scripts/lens-context.py "sua query"
-# Se estiver no VS Code → modo copilot (abre arquivo)
-# Se estiver no terminal → modo clipboard
-```
+O wrapper `scripts/lens-codex.py` usa o mesmo auto-init silencioso do `lens-context.py`.
 
 ---
 

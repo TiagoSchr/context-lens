@@ -41,8 +41,11 @@ class Store:
     def delete_file(self, path: str) -> None:
         self._conn.execute("DELETE FROM files WHERE path = ?", (path,))
 
-    def list_indexed_paths(self) -> list[str]:
-        rows = self._conn.execute("SELECT path FROM files ORDER BY path").fetchall()
+    def list_indexed_paths(self, limit: int | None = None) -> list[str]:
+        sql = "SELECT path FROM files ORDER BY path"
+        if limit is not None:
+            sql += f" LIMIT {limit}"
+        rows = self._conn.execute(sql).fetchall()
         return [r["path"] for r in rows]
 
     # --------------------------------------------------------------- symbols
@@ -68,6 +71,20 @@ class Store:
         return self._conn.execute(
             "SELECT * FROM symbols WHERE path = ? ORDER BY start_line", (path,)
         ).fetchall()
+
+    def get_symbols_for_files(self, paths: list[str]) -> dict[str, list[sqlite3.Row]]:
+        """Batch version: returns {path: [rows]} in a single SQL query."""
+        if not paths:
+            return {}
+        placeholders = ",".join("?" * len(paths))
+        rows = self._conn.execute(
+            f"SELECT * FROM symbols WHERE path IN ({placeholders}) ORDER BY path, start_line",
+            paths,
+        ).fetchall()
+        result: dict[str, list] = {p: [] for p in paths}
+        for row in rows:
+            result[row["path"]].append(row)
+        return result
 
     def get_all_symbols(self, limit: int = 500) -> list[sqlite3.Row]:
         return self._conn.execute(
@@ -109,7 +126,10 @@ class Store:
         self._conn.execute(
             """INSERT INTO memory_lite(kind, key, value, created_at, expires_at)
                VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT DO NOTHING""",
+               ON CONFLICT(kind, key) DO UPDATE SET
+                 value=excluded.value,
+                 created_at=excluded.created_at,
+                 expires_at=excluded.expires_at""",
             (kind, key, value, time.time(), expires),
         )
 
@@ -152,12 +172,16 @@ class Store:
         last_indexed = self._conn.execute(
             "SELECT MAX(indexed_at) as t FROM files"
         ).fetchone()["t"]
+        total_bytes = self._conn.execute(
+            "SELECT COALESCE(SUM(size_bytes), 0) as n FROM files"
+        ).fetchone()["n"]
         return {
             "files": files,
             "symbols": syms,
             "by_kind": {r["kind"]: r["n"] for r in kinds},
             "by_language": {r["language"]: r["n"] for r in langs if r["language"]},
             "last_indexed": last_indexed,
+            "total_bytes": total_bytes,
         }
 
     # ---------------------------------------------------------------- commit

@@ -5,6 +5,8 @@
 
 **Economia real: 75–98% de tokens** por query.
 
+> **v0.2 disponível** — setup automático multi-ferramenta, memória no contexto, projeção de economia no status, performance melhorada. Ver [Changelog](#changelog).
+
 ---
 
 ## Como funciona
@@ -76,9 +78,10 @@ rm -rf .ctx/    # remove o índice do projeto (opcional)
 ```bash
 cd seu-projeto/
 
-lens index                                     # indexa o projeto (primeira vez e após mudanças)
-lens status                                    # economia de tokens e saúde do índice
-lens context "sua pergunta"                    # gera contexto → cole no assistente
+lens index           # indexa o projeto (cria .ctx/ se não existir)
+lens setup           # configura automação para Claude Code / Copilot / Codex
+lens status          # saúde do índice + economia de tokens
+lens context "..."   # gera contexto → cole no assistente ou use via MCP
 ```
 
 Exemplos:
@@ -92,17 +95,24 @@ lens context "onde está definido calculate_discount" -t navigate
 
 ---
 
-## Cada projeto é independente
+## Setup por projeto
 
 O `lens` funciona **por projeto**, igual ao `git`. Para cada projeto novo:
 
 ```bash
 cd meu-novo-projeto/
-lens index      # cria .ctx/ aqui e indexa
-lens status     # confirma que está ativo
+lens index        # cria .ctx/ aqui e indexa
+lens setup        # configura Claude Code / Copilot / Codex automaticamente
+lens status       # confirma que está ativo
 ```
 
-Não há configuração global. Cada projeto tem seu próprio índice em `.ctx/`.
+`lens setup` detecta qual ferramenta você usa (pasta `.claude/`, `.vscode/`, etc.) e cria os arquivos certos (`CLAUDE.md`, `.vscode/tasks.json`, `.github/copilot-instructions.md`) com as instruções para o assistente usar `lens_context` automaticamente.
+
+```bash
+lens setup              # interativo — pergunta e detecta ferramentas
+lens setup --auto       # silencioso — detecta e configura sem perguntar
+lens setup --manual     # pula — você prefere usar lens context manualmente
+```
 
 **Como confirmar que está ativo:**
 
@@ -111,9 +121,13 @@ Não há configuração global. Cada projeto tem seu próprio índice em `.ctx/`
   ----------------------------------
   47 files  312 symbols  280 KB  |  indexed 22/03 10:30  |  python(47)
 
-  -- Economy -----------------------
-  All time   18 queries   saved ~60,000 tokens  (82%)
+  -- Projected savings  (no queries yet)
+  Raw project  ~78,000 tokens  (312 KB  /  47 files)
+  Lens budget  8,000 tokens
+  Est. saving  ~90%  (~70,000 tokens por query)
 ```
+
+Após as primeiras queries via MCP ou `lens context`, o status mostra a economia real acumulada.
 
 Se aparecer `Index not found`, rode `lens index`.
 
@@ -170,7 +184,7 @@ O servidor usa ~5MB RAM, responde em ~1ms, comunica via stdio (sem HTTP, sem por
 
 ### GitHub Copilot (VS Code)
 
-**Atalho:** `Ctrl+Shift+L` → digita a query → contexto gerado e aberto no editor automaticamente. O Copilot lê o arquivo aberto como contexto.
+**Atalho:** `Ctrl+Shift+L` → digita a query → `.ctx/ctx.md` atualizado e aberto automaticamente. O Copilot lê o arquivo aberto como contexto.
 
 **Script:**
 ```bash
@@ -178,21 +192,26 @@ python scripts/lens-context.py "fix bug in checkout" --target copilot
 # Gera .ctx/ctx.md e abre no VS Code
 ```
 
-**Task:** `Ctrl+Shift+P` → "Tasks: Run Task" → "Context Lens: Copilot — gerar contexto"
+**Task:** `Ctrl+Shift+P` → "Tasks: Run Task" → "Context Lens: gerar contexto para Copilot"
 
 ---
 
 ### ChatGPT / OpenAI Codex
 
 ```bash
-python scripts/lens-context.py "fix bug in checkout" --target chatgpt
-# Copia contexto para clipboard + abre link direto no ChatGPT
-# Cole com Ctrl+V e converse normalmente
+python scripts/lens-codex.py "fix bug in checkout"
+# Copia contexto para clipboard + abre chat.openai.com
 ```
 
 O script detecta o ambiente automaticamente (`--target auto` é o padrão):
 - Dentro do VS Code → modo Copilot (abre arquivo)
 - Terminal externo → clipboard
+
+No Windows, voce pode criar um alias rapido:
+
+```powershell
+doskey lc=python scripts/lens-codex.py $*
+```
 
 ---
 
@@ -268,7 +287,10 @@ lens show file:src/modulo.py         # símbolos de um arquivo
 lens log                             # histórico de queries e tokens
 lens log --last 10                   # últimas 10 queries
 lens memory list                     # lista memória do projeto
-lens memory set rule chave "valor"   # adiciona nota de memória
+lens memory set rule chave "valor"   # adiciona regra (aparece em todo contexto gerado)
+lens memory set hotspot arquivo "src/core.py"  # marca arquivo como crítico
+lens setup                           # configura integrações com assistentes de IA
+lens setup --auto                    # setup silencioso
 lens config                          # configuração atual
 ```
 
@@ -293,12 +315,19 @@ Tudo em `.ctx/` é local e nunca vai para o git.
 ```json
 {
   "token_budget": 8000,
+  "target_budgets": {
+    "claude": 8000,
+    "copilot": 4000,
+    "codex": 6000
+  },
   "budget_buffer": 0.12,
   "index_extensions": [".py", ".js", ".ts", ".tsx", ".go", ".rs"],
   "ignore_dirs": [".git", "node_modules", ".venv", "dist"],
   "max_file_size_kb": 512
 }
 ```
+
+Se `LENS_TARGET` estiver definido, o `token_budget` efetivo usa o valor de `target_budgets`.
 
 ---
 
@@ -324,6 +353,75 @@ Tudo em `.ctx/` é local e nunca vai para o git.
 | Montagem de contexto | ~1–5ms |
 | RAM durante uso | ~3–5MB |
 | Escala | testado com 640 arquivos / 7.000 símbolos |
+
+---
+
+## Changelog
+
+### v0.2 — Março 2025
+
+#### Novidades
+
+**`lens setup` — configuração automática multi-ferramenta**
+Novo comando que detecta qual assistente você usa e cria os arquivos de instrução certos automaticamente:
+- `.claude/` presente → cria `CLAUDE.md` com instrução de usar `lens_context`
+- `.vscode/` presente → atualiza `tasks.json` com auto-index + atalho Copilot
+- Nenhum dos dois → cria arquivos para todos
+```bash
+lens setup           # interativo
+lens setup --auto    # silencioso, sem perguntas
+```
+
+**`lens status` — projeção de economia desde o primeiro uso**
+Antes de rodar qualquer query, o status agora mostra a economia estimada com base no tamanho real do projeto:
+```
+-- Projected savings  (no queries yet)
+Raw project  ~39,886 tokens  (155 KB  /  39 files)
+Lens budget  8,000 tokens
+Est. saving  ~80%  (~31,886 tokens por query)
+```
+Após a primeira query via MCP ou `lens context`, mostra a economia real acumulada.
+
+**Memória do projeto aparece no contexto gerado**
+`lens memory set` funcionava mas as regras e notas nunca chegavam ao assistente. Corrigido: o bloco `## Project Memory` agora é injetado em todo contexto gerado, consumindo budget de forma controlada.
+```bash
+lens memory set rule style "always use type hints"
+lens context "add new function"
+# → contexto inclui: [rule] style: always use type hints
+```
+
+#### Correções de bugs
+
+**`lens memory set` criava duplicatas ao invés de atualizar**
+Chamar `lens memory set rule key "valor"` duas vezes criava duas linhas idênticas no banco. Corrigido com `UNIQUE INDEX(kind, key)` + migração automática de banco existente + `ON CONFLICT DO UPDATE`.
+
+**Falha silenciosa no FTS5**
+Quando a busca full-text falhava (índice corrompido ou query inválida), o sistema caía para o fallback LIKE sem nenhum aviso. Agora emite `warnings.warn()` com o motivo antes de fazer o fallback.
+
+**`tree-sitter` versão mínima incorreta**
+`pyproject.toml` declarava `tree-sitter>=0.22` mas o código usa a API `QueryCursor` disponível apenas na 0.25+. Com versões 0.22–0.24 o parsing falhava silenciosamente. Corrigido para `>=0.25`.
+
+#### Melhorias de performance
+
+**N+1 queries eliminadas no assembler de contexto**
+O assembler chamava `store.get_symbols_for_file(path)` individualmente para cada arquivo relevante — um round-trip SQLite por arquivo. Substituído por `store.get_symbols_for_files(paths)` que faz um único `WHERE path IN (...)`. Em projetos com 10 arquivos relevantes: de 10 queries para 1.
+
+**`list_indexed_paths` com limite no SQL**
+`find_callers()` carregava todos os paths do projeto na memória para depois fatiar `[:60]`. Em projetos com 5.000+ arquivos isso era desnecessário. Agora usa `LIMIT N` diretamente no SQL.
+
+---
+
+### v0.1 — Lançamento inicial
+
+- Indexação incremental com SHA-1 (só re-indexa arquivos alterados)
+- Busca FTS5 com stop words e priorização de identificadores técnicos
+- Assembler de contexto budget-driven por nível (L0 mapa, L1 assinaturas, L2 skeleton, L3 source)
+- Políticas por tipo de tarefa (navigate, explain, bugfix, refactor, generate_test)
+- MCP server para Claude Code, Continue.dev e Cursor
+- Slash commands `/ctx`, `/status`, `/reindex`, `/search`
+- VS Code tasks para Copilot (Ctrl+Shift+L) e ChatGPT (clipboard)
+- Memory Lite para hotspots, regras e notas de projeto
+- `lens watch` para re-indexação automática em background
 
 ---
 

@@ -20,6 +20,7 @@ from .budget import Budget
 from .levels import build_level0, build_level1, build_level2, build_level3, _read_source
 from ..retrieval.policy import POLICIES, TaskPolicy
 from ..retrieval.search import expand_paths_cross_file
+from ..memory.lite import format_context_block
 
 
 def _is_test_path(path: str) -> bool:
@@ -65,6 +66,13 @@ def build_context(
     b.consume(header)
     sections.append(header)
 
+    # ── Memory: project rules/notes ──────────────────────────────────────────
+    mem_rows = store.memory_list()
+    if mem_rows:
+        mem_block = format_context_block(mem_rows)
+        if b.consume(mem_block):
+            sections.append(mem_block)
+
     # ── Level 0: project map ─────────────────────────────────────────────────
     if policy.use_level0:
         l0 = build_level0(store, root)
@@ -76,10 +84,12 @@ def build_context(
         prioritized = []
         seen_ids: set = set()
 
-        # Símbolos dos arquivos relevantes primeiro (máximo relevante)
+        # Símbolos dos arquivos relevantes primeiro (máximo relevante) — batch query
         if relevant_paths:
-            for p_str in relevant_paths[:policy.level2_files + 2]:
-                for sym in store.get_symbols_for_file(p_str):
+            batch_paths = relevant_paths[:policy.level2_files + 2]
+            batch = store.get_symbols_for_files(batch_paths)
+            for p_str in batch_paths:
+                for sym in batch.get(p_str, []):
                     if sym["id"] not in seen_ids:
                         seen_ids.add(sym["id"])
                         prioritized.append(sym)
@@ -109,6 +119,7 @@ def build_context(
     # Para cada arquivo relevante: tenta source completa, cai para skeleton,
     # para quando o budget acabar. Nunca trunca se o budget comporta o arquivo.
     if (policy.use_level2 or policy.use_level3) and relevant_paths:
+        file_syms_batch = store.get_symbols_for_files(relevant_paths)
         for p_str in relevant_paths:
             if b.is_full:
                 break
@@ -123,7 +134,7 @@ def build_context(
             if src_lines is None:
                 continue
 
-            file_syms = store.get_symbols_for_file(p_str)
+            file_syms = file_syms_batch.get(p_str, [])
 
             if policy.use_level3:
                 # Tenta arquivo completo primeiro (sem limite de linhas artificial)

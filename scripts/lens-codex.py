@@ -10,7 +10,7 @@ LOCAL_SRC = ROOT / "src"
 if LOCAL_SRC.exists():
     sys.path.insert(0, str(LOCAL_SRC))
 
-from ctx.scripts.context import main
+from ctx.scripts.codex import main
 
 
 if __name__ == "__main__":

@@ -11,7 +11,10 @@
     {
       "label": "Context Lens: auto-index on open",
       "type": "shell",
-      "command": "lens index",
+      "command": "lens index --quiet && lens show map > .ctx/ctx.md 2>/dev/null || true",
+      "windows": {
+        "command": "lens index --quiet; New-Item -ItemType Directory -Force .ctx | Out-Null; lens show map | Out-File -Encoding utf8 .ctx/ctx.md; exit 0"
+      },
       "presentation": {
         "reveal": "silent",
         "panel": "shared",
@@ -44,13 +47,13 @@
       "problemMatcher": []
     },
     {
-      "label": "Context Lens: Copilot — gerar contexto",
+      "label": "Context Lens: gerar contexto para Copilot",
       "type": "shell",
-      "command": "lens context \"${input:lensQuery}\" -o .ctx/ctx.md && code .ctx/ctx.md",
+      "command": "python scripts/lens-context.py \"${input:lensQuery}\" --target copilot --no-clip",
       "presentation": {
-        "reveal": "always",
+        "reveal": "silent",
         "panel": "shared",
-        "close": false
+        "close": true
       },
       "problemMatcher": []
     },

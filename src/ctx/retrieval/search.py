@@ -54,8 +54,9 @@ def search_symbols(store: Any, query: str, limit: int = 30) -> list[Any]:
         results = store.search_symbols_fts(fts_query, limit=limit)
         if results:
             return results
-    except Exception:
-        pass
+    except Exception as _fts_err:
+        import warnings
+        warnings.warn(f"FTS5 query failed ({_fts_err!r}), falling back to LIKE search", stacklevel=2)
 
     # Fallback: LIKE nos termos técnicos ou na query completa
     conn = store._conn
@@ -108,7 +109,7 @@ def find_callers(
     """
     results = []
     pattern = re.compile(r"\b" + re.escape(symbol_name) + r"\b")
-    indexed_paths = store.list_indexed_paths()[:max_files]
+    indexed_paths = store.list_indexed_paths(limit=max_files)
     for p_str in indexed_paths:
         if len(results) >= max_results:
             break

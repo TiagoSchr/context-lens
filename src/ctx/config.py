@@ -1,6 +1,7 @@
 """Project-level configuration and .ctx directory management."""
 from __future__ import annotations
 import json
+import os
 from pathlib import Path
 
 CTX_DIR = ".ctx"
@@ -10,6 +11,11 @@ CONFIG_FILE = "config.json"
 
 DEFAULT_CONFIG = {
     "token_budget": 8000,
+    "target_budgets": {
+        "claude": 8000,
+        "copilot": 4000,
+        "codex": 6000,
+    },
     "budget_buffer": 0.12,          # reserve 12% as buffer
     "default_task": "explain",
     "index_extensions": [
@@ -25,6 +31,39 @@ DEFAULT_CONFIG = {
     "max_file_size_kb": 512,
     "fts_min_length": 2,
 }
+
+
+def normalize_target_name(target: str | None) -> str | None:
+    """Normalize tool targets used by scripts and env vars."""
+    if not target:
+        return None
+    normalized = target.strip().lower()
+    aliases = {
+        "chatgpt": "codex",
+        "openai": "codex",
+        "openai-codex": "codex",
+        "claude-code": "claude",
+        "github-copilot": "copilot",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def merge_config(user_cfg: dict | None = None) -> dict:
+    """Merge user config with defaults, including nested target budgets."""
+    merged = dict(DEFAULT_CONFIG)
+    merged["target_budgets"] = dict(DEFAULT_CONFIG["target_budgets"])
+    if not user_cfg:
+        return merged
+
+    for key, value in user_cfg.items():
+        if key == "target_budgets" and isinstance(value, dict):
+            merged["target_budgets"] = {
+                **DEFAULT_CONFIG["target_budgets"],
+                **value,
+            }
+        else:
+            merged[key] = value
+    return merged
 
 
 def find_project_root(start: Path | None = None) -> Path | None:
@@ -56,15 +95,21 @@ def config_path(root: Path) -> Path:
 
 def load_config(root: Path) -> dict:
     path = config_path(root)
+    user_cfg = None
     if path.exists():
         with open(path) as f:
             user_cfg = json.load(f)
-        return {**DEFAULT_CONFIG, **user_cfg}
-    return dict(DEFAULT_CONFIG)
+
+    cfg = merge_config(user_cfg)
+    env_target = normalize_target_name(os.environ.get("LENS_TARGET"))
+    if env_target and env_target in cfg.get("target_budgets", {}):
+        cfg["token_budget"] = cfg["target_budgets"][env_target]
+    return cfg
 
 
 def save_config(root: Path, cfg: dict) -> None:
     path = config_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
+    merged = merge_config(cfg)
     with open(path, "w") as f:
-        json.dump(cfg, f, indent=2)
+        json.dump(merged, f, indent=2)

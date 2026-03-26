@@ -14,6 +14,24 @@ from typing import Any
 VALID_KINDS = {"map", "ref", "hotspot", "note", "rule"}
 
 
+def format_context_block(rows: list) -> str:
+    """Format memory rows (from store.memory_list()) as a context block."""
+    if not rows:
+        return ""
+    lines = ["## Project Memory"]
+    current_kind = None
+    for r in rows:
+        kind = r["kind"] if hasattr(r, "__getitem__") else r.get("kind", "")
+        key = r["key"] if hasattr(r, "__getitem__") else r.get("key", "")
+        value = r["value"] if hasattr(r, "__getitem__") else r.get("value", "")
+        if kind != current_kind:
+            current_kind = kind
+            lines.append(f"\n[{kind}]")
+        key_part = f"{key}: " if key else ""
+        lines.append(f"  {key_part}{value}")
+    return "\n".join(lines)
+
+
 class MemoryLite:
     def __init__(self, store: Any):
         self._store = store

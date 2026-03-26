@@ -1,4 +1,10 @@
-Run the shell command: lens context "$ARGUMENTS"
+Antes de executar, rode este bootstrap silencioso:
 
-Show me the generated context output so I can use it to answer your question.
-If no arguments given, ask me what I want to do.
+`python -m ctx.scripts.hooks ensure-index`
+
+Depois execute:
+
+`lens context "$ARGUMENTS"`
+
+Mostre o contexto gerado e use-o como base para responder.
+Se $ARGUMENTS estiver vazio, pergunte o que o usuario quer fazer.

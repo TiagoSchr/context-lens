@@ -30,6 +30,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from .config import (
     find_project_root, ctx_dir, db_path, log_path, load_config, save_config, DEFAULT_CONFIG,
+    config_path, merge_config,
 )
 from .db.schema import init_db
 from .db.store import Store
@@ -59,6 +60,26 @@ def _require_index(root: Path) -> tuple[Store, dict, CtxLogger]:
     return store, cfg, logger
 
 
+def _iter_index_paths(
+    root: Path,
+    target: Path,
+    extensions: list[str],
+    ignore_dirs: set[str],
+    max_kb: int,
+):
+    """Yield files to index from a project root, subdirectory or single file."""
+    if target.is_file():
+        try:
+            size_ok = target.stat().st_size <= max_kb * 1024
+        except OSError:
+            return
+        if target.suffix in set(extensions) and size_ok:
+            yield target
+        return
+
+    yield from walk_project(target, extensions, ignore_dirs, max_kb)
+
+
 # ─────────────────────────────────────────────────────────── CLI group
 
 @click.group()
@@ -75,6 +96,7 @@ def init(budget):
     """Initialize .ctx/ directory in the current project."""
     root = Path.cwd()
     d = ctx_dir(root)
+    cfg_file = config_path(root)
 
     if d.exists():
         click.echo(f"Already initialized at {d}")
@@ -82,32 +104,220 @@ def init(budget):
         d.mkdir(parents=True)
         click.echo(f"Created {d}")
 
-    cfg = dict(DEFAULT_CONFIG)
-    if budget:
-        cfg["token_budget"] = budget
-
-    save_config(root, cfg)
-    click.echo(f"Config written to {d / 'config.json'}")
+    if cfg_file.exists():
+        existing_cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
+        cfg = merge_config(existing_cfg)
+        if budget:
+            cfg["token_budget"] = budget
+        if cfg != existing_cfg:
+            save_config(root, cfg)
+            click.echo(f"Config merged into {cfg_file}")
+        else:
+            click.echo(f"Config preserved at {cfg_file}")
+    else:
+        cfg = dict(DEFAULT_CONFIG)
+        if budget:
+            cfg["token_budget"] = budget
+        save_config(root, cfg)
+        click.echo(f"Config written to {cfg_file}")
 
     # Initialize DB
     conn = init_db(db_path(root))
     conn.close()
     click.echo("Index database ready.")
     click.echo("\nNext step: run `lens index` to index your project.")
+    click.echo("Optional:   run `lens setup` to configure auto-context for your AI tools.")
+
+
+# ─────────────────────────────────────────────────────────── setup
+
+# Templates de instrução por ferramenta
+_AI_TOOLS = {
+    "claude": {
+        "name": "Claude Code",
+        "detect": [".claude"],
+        "file": "CLAUDE.md",
+        "content": """\
+# Context Lens — Instruções obrigatórias
+
+Antes de explorar arquivos com Read, Glob ou Grep em qualquer tarefa de código,
+SEMPRE chame primeiro a ferramenta MCP `lens_context` com a query da tarefa.
+
+**Fluxo obrigatório:**
+1. Receber tarefa do usuário
+2. Chamar `lens_context "<query>"` via MCP → obtém contexto otimizado
+3. Usar o contexto retornado como base principal
+4. Usar Read/Glob apenas para arquivos específicos não cobertos
+
+Isso reduz os tokens enviados por query em ~80% comparado a ler arquivos direto.
+""",
+    },
+    "cursor": {
+        "name": "Cursor",
+        "detect": [".cursor", ".cursorrules"],
+        "file": ".cursor/rules/lens.mdc",
+        "content": """\
+---
+description: Context Lens — always use lens_context before exploring files
+alwaysApply: true
+---
+Before exploring code files, always call the `lens_context` MCP tool with your query.
+Use the returned context as the primary source. Only read specific files not covered
+by the lens context. This reduces token usage by ~80% per query.
+""",
+    },
+    "copilot": {
+        "name": "GitHub Copilot",
+        "detect": [".github"],
+        "file": ".github/copilot-instructions.md",
+        "content": """\
+# Context Lens
+
+Before exploring files, use the `lens_context` MCP tool with your query.
+Use the returned optimized context as the primary source of truth for the codebase.
+Only read specific files not already covered by lens context.
+This reduces token usage significantly per query.
+""",
+    },
+    "codex": {
+        "name": "OpenAI Codex / ChatGPT",
+        "detect": ["AGENTS.md"],
+        "file": "AGENTS.md",
+        "content": """\
+# Context Lens
+
+Before exploring files, call the `lens_context` tool with your query.
+Use the returned context as primary source. Only read specific files
+not covered by lens context. This reduces token usage per query.
+""",
+    },
+}
+
+
+def _detect_tools(root: Path) -> list[str]:
+    """Detecta quais ferramentas de AI estão presentes no projeto."""
+    found = []
+    for key, tool in _AI_TOOLS.items():
+        for marker in tool["detect"]:
+            if (root / marker).exists():
+                found.append(key)
+                break
+    return found
+
+
+@main.command()
+@click.option("--auto", is_flag=True, help="Configura automaticamente sem perguntar.")
+@click.option("--manual", is_flag=True, help="Pula configuração automática.")
+def setup(auto, manual):
+    """Configure automatic context injection for AI coding tools.
+
+    Creates instruction files (CLAUDE.md, .cursorrules, etc.) that tell
+    the AI assistant to always use lens_context before exploring files,
+    reducing token usage by ~80% per query.
+    """
+    root = Path.cwd()
+
+    if manual:
+        click.echo("Skipping auto-context setup. Use lens context \"query\" manually.")
+        return
+
+    click.echo("\n  Context Lens — AI Tool Setup")
+    click.echo("  " + "-" * 34)
+    click.echo("  When automatic mode is ON, the AI tool will call lens_context")
+    click.echo("  before every task, reducing tokens sent by ~80%.\n")
+
+    # Detecta ferramentas presentes
+    detected = _detect_tools(root)
+    if detected:
+        names = ", ".join(_AI_TOOLS[k]["name"] for k in detected)
+        click.echo(f"  Detected tools: {names}")
+    else:
+        click.echo("  No AI tools detected. Will configure based on your choice.")
+
+    if not auto:
+        choice = click.prompt(
+            "\n  Configure automatic context injection?",
+            type=click.Choice(["yes", "no"], case_sensitive=False),
+            default="yes",
+        )
+        if choice.lower() == "no":
+            click.echo("\n  Skipped. Use lens context \"query\" manually when needed.")
+            return
+
+    # Escolhe quais ferramentas configurar
+    all_keys = list(_AI_TOOLS.keys())
+    if detected and not auto:
+        use_detected = click.confirm(
+            f"\n  Configure only detected tools ({', '.join(_AI_TOOLS[k]['name'] for k in detected)})?",
+            default=True,
+        )
+        targets = detected if use_detected else all_keys
+    elif detected:
+        targets = detected
+    else:
+        if not auto:
+            click.echo("\n  Select tools to configure:")
+            for i, key in enumerate(all_keys, 1):
+                click.echo(f"    {i}. {_AI_TOOLS[key]['name']}  ({_AI_TOOLS[key]['file']})")
+            raw = click.prompt("  Enter numbers (e.g. 1,2) or 'all'", default="1")
+            if raw.strip().lower() == "all":
+                targets = all_keys
+            else:
+                idxs = [int(x.strip()) - 1 for x in raw.split(",") if x.strip().isdigit()]
+                targets = [all_keys[i] for i in idxs if 0 <= i < len(all_keys)]
+        else:
+            targets = all_keys
+
+    if not targets:
+        click.echo("  Nothing selected.")
+        return
+
+    click.echo()
+    created, skipped = [], []
+    for key in targets:
+        tool = _AI_TOOLS[key]
+        dest = root / tool["file"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            # Não sobrescreve se já tem conteúdo do lens
+            if "lens_context" in dest.read_text(encoding="utf-8", errors="ignore"):
+                skipped.append(tool["file"])
+                continue
+            # Append ao arquivo existente
+            with open(dest, "a", encoding="utf-8") as f:
+                f.write("\n" + tool["content"])
+            click.echo(f"  Updated  {tool['file']}")
+        else:
+            dest.write_text(tool["content"], encoding="utf-8")
+            click.echo(f"  Created  {tool['file']}")
+        created.append(tool["file"])
+
+    if skipped:
+        click.echo(f"  Skipped  {', '.join(skipped)}  (lens_context already present)")
+
+    if created:
+        click.echo(f"\n  Done. The AI will now call lens_context automatically.")
+        click.echo(f"  Run `lens index` first if you haven't already.\n")
+    else:
+        click.echo(f"\n  All tools already configured.\n")
 
 
 # ─────────────────────────────────────────────────────────── index
 
 @main.command()
 @click.option("--force", is_flag=True, help="Re-index all files, ignoring hash cache")
+@click.option("--incremental", is_flag=True, help="Explicit no-op; incremental indexing is already the default")
+@click.option("--quiet", is_flag=True, help="Suppress non-error output")
 @click.option("--verbose", "-v", is_flag=True)
-@click.argument("path", default=".", type=click.Path(exists=True))
-def index(force, verbose, path):
+@click.argument("path", default=".", type=click.Path(exists=True, path_type=Path))
+def index(force, incremental, quiet, verbose, path):
     """Index project files into the context database.
 
     Auto-initializes .ctx/ if not present — no need to run ctx init first.
     """
-    root = find_project_root(Path(path).resolve()) or Path(path).resolve()
+    _ = incremental
+    target_path = path.resolve()
+    root = find_project_root(target_path) or target_path
     cfg = load_config(root)
     dp = db_path(root)
     # Auto-init: cria .ctx/ se não existir, sem exigir ctx init manual
@@ -116,7 +326,8 @@ def index(force, verbose, path):
     d.mkdir(parents=True, exist_ok=True)
     if first_run:
         save_config(root, dict(DEFAULT_CONFIG))
-        click.echo(f"Initialized .ctx/ at {root}")
+        if not quiet:
+            click.echo(f"Initialized .ctx/ at {root}")
 
     conn = init_db(dp)
     store = Store(conn)
@@ -126,7 +337,8 @@ def index(force, verbose, path):
     ignore_dirs = set(cfg["ignore_dirs"])
     max_kb = cfg["max_file_size_kb"]
 
-    click.echo(f"Indexing {root} ...")
+    if not quiet:
+        click.echo(f"Indexing {root} ...")
     t0 = time.time()
 
     files_checked = 0
@@ -134,7 +346,7 @@ def index(force, verbose, path):
     files_skipped = 0
     total_symbols = 0
 
-    for file_path in walk_project(root, extensions, ignore_dirs, max_kb):
+    for file_path in _iter_index_paths(root, target_path, extensions, ignore_dirs, max_kb):
         rel = file_path.relative_to(root).as_posix()  # forward slashes em todos os OS
         files_checked += 1
 
@@ -164,23 +376,24 @@ def index(force, verbose, path):
         files_indexed += 1
         logger.index(rel, len(symbols))
 
-        if verbose:
+        if verbose and not quiet:
             click.echo(f"  {rel} ({lang or '?'}) — {len(symbols)} symbols")
 
     store.commit()
     elapsed = time.time() - t0
 
     rate = files_checked / elapsed if elapsed > 0 else 0
-    click.echo(f"\n{'='*44}")
-    click.echo("  Indexing complete")
-    click.echo(f"{'='*44}")
-    click.echo(f"  {'Indexed':<18} {files_indexed:>6} file(s)")
-    click.echo(f"  {'Unchanged':<18} {files_skipped:>6} file(s)  (cache hit)")
-    click.echo(f"  {'Symbols found':<18} {total_symbols:>6}")
-    click.echo(f"  {'Speed':<18} {rate:>5.0f} files/sec")
-    click.echo(f"  {'Time':<18} {elapsed:>5.1f}s")
-    click.echo(f"{'='*44}")
-    click.echo("  Run `lens status` to see token economy.")
+    if not quiet:
+        click.echo(f"\n{'='*44}")
+        click.echo("  Indexing complete")
+        click.echo(f"{'='*44}")
+        click.echo(f"  {'Indexed':<18} {files_indexed:>6} file(s)")
+        click.echo(f"  {'Unchanged':<18} {files_skipped:>6} file(s)  (cache hit)")
+        click.echo(f"  {'Symbols found':<18} {total_symbols:>6}")
+        click.echo(f"  {'Speed':<18} {rate:>5.0f} files/sec")
+        click.echo(f"  {'Time':<18} {elapsed:>5.1f}s")
+        click.echo(f"{'='*44}")
+        click.echo("  Run `lens status` to see token economy.")
 
 
 # ─────────────────────────────────────────────────────────── search
@@ -487,7 +700,16 @@ def status():
                 pass
 
     if not retrievals:
-        click.echo("\n  No queries yet.  Run: lens context \"your question\"\n")
+        sep("Projected savings  (no queries yet)")
+        budget = cfg.get("token_budget", 8000)
+        total_bytes = s.get("total_bytes", 0)
+        raw_tokens = max(1, total_bytes // 4)   # mesma fórmula de budget.py
+        lens_tokens = min(budget, raw_tokens)
+        pct = (raw_tokens - lens_tokens) / raw_tokens * 100 if raw_tokens else 0
+        click.echo(f"  Raw project  ~{raw_tokens:,} tokens  ({total_bytes // 1024} KB  /  {s['files']} files)")
+        click.echo(f"  Lens budget  {budget:,} tokens")
+        click.echo(f"  Est. saving  ~{pct:.0f}%  (~{raw_tokens - lens_tokens:,} tokens por query)")
+        click.echo(f"\n  Use MCP (lens_context) ou: lens context \"sua pergunta\"\n")
         return
 
     # sessão = queries desde a última indexação

@@ -84,3 +84,14 @@ python bench/benchmark.py   # performance
 - tree-sitter >= 0.22 + tree-sitter-{python,javascript,typescript,...}
 - SQLite (stdlib) com FTS5
 - tiktoken (opcional, para contagem exata de tokens)
+
+## Context Lens - Uso automatico
+
+Antes de ler multiplos arquivos para responder uma pergunta, SEMPRE usar:
+- `lens_context` (MCP) ou `lens context "<query>"` (CLI) para montar contexto
+- `lens_search` (MCP) ou `lens search "<query>"` para localizar simbolos
+
+Nunca ler 3+ arquivos diretamente se o indice .ctx/index.db existir.
+O contexto retornado ja inclui apenas o relevante, economizando 75-98% de tokens.
+
+Se .ctx/index.db nao existir no projeto atual: executar /setup-lens antes de tudo.

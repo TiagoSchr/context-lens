@@ -40,7 +40,7 @@ Gera `.ctx/ctx.md` e abre no VS Code automaticamente via `code` CLI.
 
 ## Opção 3 — Task do VS Code
 
-`Ctrl+Shift+P` → "Tasks: Run Task" → **"Context Lens: Copilot — gerar contexto"**
+`Ctrl+Shift+P` → "Tasks: Run Task" → **"Context Lens: gerar contexto para Copilot"**
 
 Digita a query e o contexto é gerado e aberto no editor.
 

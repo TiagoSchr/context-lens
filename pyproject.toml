@@ -29,7 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 parse = [
-    "tree-sitter>=0.22",
+    "tree-sitter>=0.25",
     "tree-sitter-python",
     "tree-sitter-javascript",
     "tree-sitter-typescript",
@@ -40,10 +40,10 @@ parse = [
     "tree-sitter-cpp",
 ]
 tokens = ["tiktoken>=0.6"]
-mcp = ["mcp>=1.0"]
+mcp = ["mcp>=1.0,<2.0"]
 dev = ["pytest>=7.0", "pytest-cov"]
 all = [
-    "tree-sitter>=0.22",
+    "tree-sitter>=0.25",
     "tree-sitter-python",
     "tree-sitter-javascript",
     "tree-sitter-typescript",
@@ -59,6 +59,7 @@ all = [
 lens     = "ctx.cli:main"
 ctx      = "ctx.cli:main"
 lens-mcp = "ctx.mcp:main"
+lens-setup = "ctx.scripts.setup:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ctx"]
