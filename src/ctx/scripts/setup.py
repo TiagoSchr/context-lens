@@ -59,12 +59,19 @@ configurado em .claude/mcp.json.
 CLAUDE_RULE = """
 ## Context Lens - Uso automatico
 
-Antes de ler multiplos arquivos para responder uma pergunta, SEMPRE usar:
-- `lens_context` (MCP) ou `lens context "<query>"` (CLI) para montar contexto
-- `lens_search` (MCP) ou `lens search "<query>"` para localizar simbolos
+Antes de usar Read, Glob, Grep ou qualquer ferramenta de leitura de arquivo,
+SEMPRE chamar lens_context primeiro — mesmo para um unico arquivo.
 
-Nunca ler 3+ arquivos diretamente se o indice .ctx/index.db existir.
-O contexto retornado ja inclui apenas o relevante, economizando 75-98% de tokens.
+Fluxo obrigatorio:
+1. Receber tarefa do usuario
+2. Chamar `lens_context "<query>"` via MCP → obtem contexto otimizado
+3. Usar o contexto retornado como base principal
+4. Usar Read/Glob apenas para arquivos especificos nao cobertos pelo contexto
+
+Ler arquivos sem chamar lens_context primeiro desperdiça 75-98% dos tokens
+disponiveis nesta sessao e reduz a qualidade das respostas seguintes.
+
+Para buscar simbolos pelo nome: usar `lens_search` (MCP) ou `lens search "<query>"`.
 
 Se .ctx/index.db nao existir no projeto atual: executar /setup-lens antes de tudo.
 """
@@ -342,6 +349,114 @@ def _ensure_local_scripts(root: Path, notes: dict[str, list[str]]) -> None:
     _ensure_managed_text_file(root, scripts_dir / "lens-setup.py", LOCAL_SETUP_WRAPPER, notes)
 
 
+def remove_claude(root: Path) -> dict[str, list[str]]:
+    notes: dict[str, list[str]] = {"removed": [], "skipped": []}
+
+    # 1. Remove entrada context-lens do .claude/mcp.json
+    mcp_path = root / ".claude" / "mcp.json"
+    if mcp_path.exists():
+        mcp_data = _load_json(mcp_path, {})
+        servers = mcp_data.get("mcpServers", {})
+        if "context-lens" in servers:
+            del servers["context-lens"]
+            _write_json(mcp_path, mcp_data)
+            notes["removed"].append(".claude/mcp.json (removed context-lens entry)")
+
+    # 2. Remove CLAUDE_RULE de CLAUDE.md
+    claude_md = root / "CLAUDE.md"
+    if claude_md.exists():
+        content = claude_md.read_text(encoding="utf-8", errors="ignore")
+        if "## Context Lens - Uso automatico" in content:
+            new_content = content.replace(CLAUDE_RULE, "").rstrip() + "\n"
+            claude_md.write_text(new_content, encoding="utf-8")
+            notes["removed"].append("CLAUDE.md (removed lens rule)")
+
+    # 3. Remove hooks de settings.local.json
+    settings_path = root / ".claude" / "settings.local.json"
+    if settings_path.exists():
+        settings = _load_json(settings_path, {})
+        hooks = settings.get("hooks", {})
+        changed = False
+        for hook_type in ["PreToolUse", "PostToolUse"]:
+            buckets = hooks.get(hook_type, [])
+            for bucket in buckets:
+                original_len = len(bucket.get("hooks", []))
+                bucket["hooks"] = [
+                    h for h in bucket.get("hooks", [])
+                    if "ctx.scripts.hooks" not in h.get("command", "")
+                ]
+                if len(bucket["hooks"]) != original_len:
+                    changed = True
+        if changed:
+            _write_json(settings_path, settings)
+            notes["removed"].append(".claude/settings.local.json (removed lens hooks)")
+
+    # 4. Remove slash commands gerenciados
+    for cmd_file in ["ctx.md", "setup-lens.md"]:
+        cmd_path = root / ".claude" / "commands" / cmd_file
+        if cmd_path.exists():
+            cmd_path.unlink()
+            notes["removed"].append(f".claude/commands/{cmd_file}")
+
+    return notes
+
+
+def remove_vscode(root: Path) -> dict[str, list[str]]:
+    notes: dict[str, list[str]] = {"removed": [], "skipped": []}
+
+    # 1. Remove tasks do lens de tasks.json
+    tasks_path = root / ".vscode" / "tasks.json"
+    if tasks_path.exists():
+        tasks_data = _load_json(tasks_path, {})
+        lens_labels = {
+            VSCODE_AUTO_INDEX_TASK["label"],
+            VSCODE_CONTEXT_TASK["label"],
+            VSCODE_STATUS_TASK["label"],
+        }
+        original_len = len(tasks_data.get("tasks", []))
+        tasks_data["tasks"] = [
+            t for t in tasks_data.get("tasks", [])
+            if t.get("label") not in lens_labels
+        ]
+        if len(tasks_data["tasks"]) != original_len:
+            _write_json(tasks_path, tasks_data)
+            notes["removed"].append(".vscode/tasks.json (removed lens tasks)")
+
+    # 2. Remove keybindings do lens
+    kb_path = root / ".vscode" / "keybindings.json"
+    if kb_path.exists():
+        keybindings = _load_json(kb_path, [])
+        lens_keys = {kb["key"] for kb in VSCODE_KEYBINDINGS}
+        original_len = len(keybindings)
+        keybindings = [kb for kb in keybindings if kb.get("key") not in lens_keys]
+        if len(keybindings) != original_len:
+            _write_json(kb_path, keybindings)
+            notes["removed"].append(".vscode/keybindings.json (removed lens keybindings)")
+
+    # 3. Remove copilot-instructions.md se gerenciado pelo lens
+    copilot_path = root / ".github" / "copilot-instructions.md"
+    if copilot_path.exists():
+        content = copilot_path.read_text(encoding="utf-8", errors="ignore")
+        if content.startswith(MANAGED_SENTINEL):
+            copilot_path.unlink()
+            notes["removed"].append(".github/copilot-instructions.md")
+
+    return notes
+
+
+def remove_codex(root: Path) -> dict[str, list[str]]:
+    notes: dict[str, list[str]] = {"removed": [], "skipped": []}
+    scripts_dir = root / "scripts"
+    for script_name in ["lens-context.py", "lens-codex.py", "lens-setup.py"]:
+        script_path = scripts_dir / script_name
+        if script_path.exists():
+            content = script_path.read_text(encoding="utf-8", errors="ignore")
+            if content.startswith(MANAGED_SENTINEL):
+                script_path.unlink()
+                notes["removed"].append(f"scripts/{script_name}")
+    return notes
+
+
 def ensure_claude(root: Path) -> dict[str, list[str]]:
     notes = {"updated": [], "preserved": [], "unchanged": []}
     _ensure_local_scripts(root, notes)
@@ -501,10 +616,35 @@ def main(argv: list[str] | None = None) -> int:
         default="all",
         help="Ferramenta alvo para configurar (padrao: all).",
     )
+    parser.add_argument(
+        "--remove",
+        action="store_true",
+        help="Remove Context Lens setup para o target especificado.",
+    )
     args = parser.parse_args(argv)
 
     root = Path.cwd()
     detected = detect_tools(root)
+
+    if args.remove:
+        targets = _resolve_targets(args.target, detected)
+        removed: list[str] = []
+        for target in targets:
+            if target == "claude":
+                r = remove_claude(root)
+            elif target == "vscode":
+                r = remove_vscode(root)
+            else:
+                r = remove_codex(root)
+            removed.extend(r.get("removed", []))
+        if removed:
+            print("Removed:")
+            for item in removed:
+                print(f"  {item}")
+        else:
+            print("Nothing to remove — no Context Lens setup found.")
+        return 0
+
     install_state = _install_package_if_needed(root)
     _ensure_index(root)
 

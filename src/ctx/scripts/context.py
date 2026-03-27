@@ -197,7 +197,9 @@ def main(argv: list[str] | None = None) -> int:
         budget=budget,
         buffer_ratio=cfg["budget_buffer"],
     )
-    logger.retrieval(task, relevant_paths, meta["tokens_used"], meta["budget"])
+    _raw_str = store.get_meta("project_tokens_total")
+    _tokens_raw = int(_raw_str) if _raw_str else 0
+    logger.retrieval(task, relevant_paths, meta["tokens_used"], meta["budget"], tokens_raw=_tokens_raw)
 
     ctx_dir = root / ".ctx"
     ctx_dir.mkdir(parents=True, exist_ok=True)

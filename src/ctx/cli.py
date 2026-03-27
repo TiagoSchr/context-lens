@@ -140,16 +140,19 @@ _AI_TOOLS = {
         "content": """\
 # Context Lens — Instruções obrigatórias
 
-Antes de explorar arquivos com Read, Glob ou Grep em qualquer tarefa de código,
-SEMPRE chame primeiro a ferramenta MCP `lens_context` com a query da tarefa.
+Antes de usar Read, Glob, Grep ou qualquer ferramenta de leitura de arquivo,
+SEMPRE chame lens_context primeiro — mesmo para um único arquivo.
 
 **Fluxo obrigatório:**
 1. Receber tarefa do usuário
 2. Chamar `lens_context "<query>"` via MCP → obtém contexto otimizado
 3. Usar o contexto retornado como base principal
-4. Usar Read/Glob apenas para arquivos específicos não cobertos
+4. Usar Read/Glob apenas para arquivos específicos não cobertos pelo contexto
 
-Isso reduz os tokens enviados por query em ~80% comparado a ler arquivos direto.
+Ler arquivos sem chamar lens_context primeiro desperdiça 75-98% dos tokens
+disponíveis nesta sessão e reduz a qualidade das respostas seguintes.
+
+Para buscar símbolos pelo nome: usar `lens_search` via MCP.
 """,
     },
     "cursor": {
@@ -205,10 +208,71 @@ def _detect_tools(root: Path) -> list[str]:
     return found
 
 
+def _remove_tool_setup(root: Path, key: str) -> list[str]:
+    """Remove a seção Context Lens do arquivo da ferramenta.
+    Retorna lista de mensagens sobre arquivos modificados."""
+    msgs = []
+    tool = _AI_TOOLS.get(key)
+    if not tool:
+        return msgs
+    dest = root / tool["file"]
+    if not dest.exists():
+        return msgs
+    content = dest.read_text(encoding="utf-8", errors="ignore")
+    if "lens_context" not in content:
+        return msgs
+    lens_block = "\n" + tool["content"]
+    if content.strip() == tool["content"].strip():
+        dest.unlink()
+        msgs.append(f"deleted {tool['file']}")
+    elif lens_block in content:
+        new_content = content.replace(lens_block, "").rstrip() + "\n"
+        dest.write_text(new_content, encoding="utf-8")
+        msgs.append(f"cleaned {tool['file']}")
+    else:
+        msgs.append(f"skipped {tool['file']} (custom content, cannot auto-remove)")
+    return msgs
+
+
+def _do_create_targets(root: Path, targets: list[str]) -> None:
+    """Cria/atualiza arquivos de instrução para os targets especificados."""
+    created, skipped = [], []
+    for key in targets:
+        tool = _AI_TOOLS[key]
+        dest = root / tool["file"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            if "lens_context" in dest.read_text(encoding="utf-8", errors="ignore"):
+                skipped.append(tool["file"])
+                continue
+            with open(dest, "a", encoding="utf-8") as f:
+                f.write("\n" + tool["content"])
+            click.echo(f"  Updated  {tool['file']}")
+        else:
+            dest.write_text(tool["content"], encoding="utf-8")
+            click.echo(f"  Created  {tool['file']}")
+        created.append(tool["file"])
+    if skipped:
+        click.echo(f"  Skipped  {', '.join(skipped)}  (lens_context already present)")
+    if created:
+        click.echo("\n  Done. The AI will now call lens_context automatically.")
+        click.echo("  Run `lens index` first if you haven't already.\n")
+    else:
+        click.echo("\n  All tools already configured.\n")
+
+
 @main.command()
 @click.option("--auto", is_flag=True, help="Configura automaticamente sem perguntar.")
 @click.option("--manual", is_flag=True, help="Pula configuração automática.")
-def setup(auto, manual):
+@click.option("--remove", "do_remove", is_flag=True,
+              help="Remove Context Lens setup for specified target.")
+@click.option("--switch", default=None,
+              type=click.Choice(["claude", "cursor", "copilot", "codex"]),
+              help="Remove configuração atual e instala para a ferramenta especificada.")
+@click.option("--target", default=None,
+              type=click.Choice(["all", "claude", "cursor", "copilot", "codex"]),
+              help="Tool to configure or remove (default: all detected).")
+def setup(auto, manual, do_remove, switch, target):
     """Configure automatic context injection for AI coding tools.
 
     Creates instruction files (CLAUDE.md, .cursorrules, etc.) that tell
@@ -216,17 +280,41 @@ def setup(auto, manual):
     reducing token usage by ~80% per query.
     """
     root = Path.cwd()
+    all_keys = list(_AI_TOOLS.keys())
 
     if manual:
         click.echo("Skipping auto-context setup. Use lens context \"query\" manually.")
         return
 
+    # ── --remove ────────────────────────────────────────────────────────────
+    if do_remove:
+        keys = all_keys if (target is None or target == "all") else [target]
+        msgs = []
+        for key in keys:
+            msgs.extend(_remove_tool_setup(root, key))
+        if msgs:
+            for m in msgs:
+                click.echo(f"  {m}")
+            click.echo("\n  Setup removed. Run `lens setup` to reconfigure.")
+        else:
+            click.echo("  Nothing to remove — no Context Lens setup found.")
+        return
+
+    # ── --switch ─────────────────────────────────────────────────────────────
+    if switch:
+        for key in all_keys:
+            _remove_tool_setup(root, key)
+        click.echo()
+        _do_create_targets(root, [switch])
+        click.echo(f"  Switched to {_AI_TOOLS[switch]['name']}.\n")
+        return
+
+    # ── normal setup ─────────────────────────────────────────────────────────
     click.echo("\n  Context Lens — AI Tool Setup")
     click.echo("  " + "-" * 34)
     click.echo("  When automatic mode is ON, the AI tool will call lens_context")
     click.echo("  before every task, reducing tokens sent by ~80%.\n")
 
-    # Detecta ferramentas presentes
     detected = _detect_tools(root)
     if detected:
         names = ", ".join(_AI_TOOLS[k]["name"] for k in detected)
@@ -244,9 +332,12 @@ def setup(auto, manual):
             click.echo("\n  Skipped. Use lens context \"query\" manually when needed.")
             return
 
-    # Escolhe quais ferramentas configurar
-    all_keys = list(_AI_TOOLS.keys())
-    if detected and not auto:
+    # Resolve targets — --target flag takes priority over detection
+    if target and target != "all":
+        targets = [target]
+    elif target == "all":
+        targets = all_keys
+    elif detected and not auto:
         use_detected = click.confirm(
             f"\n  Configure only detected tools ({', '.join(_AI_TOOLS[k]['name'] for k in detected)})?",
             default=True,
@@ -273,33 +364,7 @@ def setup(auto, manual):
         return
 
     click.echo()
-    created, skipped = [], []
-    for key in targets:
-        tool = _AI_TOOLS[key]
-        dest = root / tool["file"]
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.exists():
-            # Não sobrescreve se já tem conteúdo do lens
-            if "lens_context" in dest.read_text(encoding="utf-8", errors="ignore"):
-                skipped.append(tool["file"])
-                continue
-            # Append ao arquivo existente
-            with open(dest, "a", encoding="utf-8") as f:
-                f.write("\n" + tool["content"])
-            click.echo(f"  Updated  {tool['file']}")
-        else:
-            dest.write_text(tool["content"], encoding="utf-8")
-            click.echo(f"  Created  {tool['file']}")
-        created.append(tool["file"])
-
-    if skipped:
-        click.echo(f"  Skipped  {', '.join(skipped)}  (lens_context already present)")
-
-    if created:
-        click.echo("\n  Done. The AI will now call lens_context automatically.")
-        click.echo("  Run `lens index` first if you haven't already.\n")
-    else:
-        click.echo("\n  All tools already configured.\n")
+    _do_create_targets(root, targets)
 
 
 # ─────────────────────────────────────────────────────────── index
@@ -380,6 +445,28 @@ def index(force, incremental, quiet, verbose, path):
             click.echo(f"  {rel} ({lang or '?'}) — {len(symbols)} symbols")
 
     store.commit()
+
+    # Calcula tokens reais do projeto (uma vez por indexação com mudanças)
+    try:
+        from .context.budget import count_tokens as _count_tokens
+        _existing_total = store.get_meta("project_tokens_total")
+        if force or _existing_total is None or files_indexed > 0:
+            _total_tokens = 0
+            for _indexed_path in store.list_indexed_paths():
+                try:
+                    _abs = root / _indexed_path
+                    if _abs.exists():
+                        _total_tokens += _count_tokens(
+                            _abs.read_text(encoding="utf-8", errors="ignore")
+                        )
+                except Exception:
+                    pass
+            if _total_tokens > 0:
+                store.set_meta("project_tokens_total", str(_total_tokens))
+                store.set_meta("project_tokens_updated_at", str(time.time()))
+    except Exception:
+        pass  # nunca interrompe a indexação por causa do token counting
+
     elapsed = time.time() - t0
 
     rate = files_checked / elapsed if elapsed > 0 else 0
@@ -481,7 +568,9 @@ def context_cmd(query, task, budget, extra_files, show_meta, output):
         buffer_ratio=buffer,
     )
 
-    logger.retrieval(task, relevant_paths, meta["tokens_used"], meta["budget"])
+    _raw_str = store.get_meta("project_tokens_total")
+    _tokens_raw = int(_raw_str) if _raw_str else 0
+    logger.retrieval(task, relevant_paths, meta["tokens_used"], meta["budget"], tokens_raw=_tokens_raw)
 
     if output:
         Path(output).write_text(ctx_text, encoding="utf-8")
@@ -702,11 +791,16 @@ def status():
     if not retrievals:
         sep("Projected savings  (no queries yet)")
         budget = cfg.get("token_budget", 8000)
-        total_bytes = s.get("total_bytes", 0)
-        raw_tokens = max(1, total_bytes // 4)   # mesma fórmula de budget.py
+        _raw_str = store.get_meta("project_tokens_total")
+        if _raw_str:
+            raw_tokens = int(_raw_str)
+            click.echo(f"  Raw project  ~{raw_tokens:,} tokens  (real count,  {s['files']} files)")
+        else:
+            total_bytes = s.get("total_bytes", 0)
+            raw_tokens = max(1, total_bytes // 4)
+            click.echo(f"  Raw project  ~{raw_tokens:,} tokens  ({total_bytes // 1024} KB  /  {s['files']} files)")
         lens_tokens = min(budget, raw_tokens)
         pct = (raw_tokens - lens_tokens) / raw_tokens * 100 if raw_tokens else 0
-        click.echo(f"  Raw project  ~{raw_tokens:,} tokens  ({total_bytes // 1024} KB  /  {s['files']} files)")
         click.echo(f"  Lens budget  {budget:,} tokens")
         click.echo(f"  Est. saving  ~{pct:.0f}%  (~{raw_tokens - lens_tokens:,} tokens por query)")
         click.echo("\n  Use MCP (lens_context) ou: lens context \"sua pergunta\"\n")
@@ -714,13 +808,25 @@ def status():
 
     # sessão = queries desde a última indexação
     last_idx_ts = s.get("last_indexed") or 0
-    session     = [r for r in retrievals if r["ts"] >= last_idx_ts]
-    total_saved = sum(r["budget"] - r["tokens_used"] for r in retrievals)
-    sess_saved  = sum(r["budget"] - r["tokens_used"] for r in session) if session else 0
-    avg_all     = (1 - sum(r["tokens_used"] for r in retrievals) /
-                   sum(r["budget"] for r in retrievals)) * 100 if retrievals else 0
-    avg_sess    = (1 - sum(r["tokens_used"] for r in session) /
-                   sum(r["budget"] for r in session)) * 100 if session else 0
+    session = [r for r in retrievals if r["ts"] >= last_idx_ts]
+
+    _proj_str = store.get_meta("project_tokens_total")
+    _proj_tokens = int(_proj_str) if _proj_str else None
+
+    def _raw(r: dict) -> int:
+        """Tokens brutos reais: do log se disponível, senão usa total do projeto."""
+        raw = r.get("tokens_raw", 0)
+        return raw if raw > 0 else (_proj_tokens or r["budget"])
+
+    total_used  = sum(r["tokens_used"] for r in retrievals)
+    total_raw   = sum(_raw(r) for r in retrievals)
+    total_saved = max(0, total_raw - total_used)
+    avg_all     = max(0.0, (1 - total_used / total_raw) * 100) if total_raw else 0
+
+    sess_used   = sum(r["tokens_used"] for r in session)
+    sess_raw    = sum(_raw(r) for r in session)
+    sess_saved  = max(0, sess_raw - sess_used)
+    avg_sess    = max(0.0, (1 - sess_used / sess_raw) * 100) if sess_raw else 0
 
     sep("Economy")
     click.echo(f"  This session  {len(session):>3} queries   saved ~{sess_saved:,} tokens  ({avg_sess:.0f}%)")
@@ -732,16 +838,17 @@ def status():
         recs = [r for r in retrievals if r["task"] == task]
         if not recs:
             continue
-        avg_u = sum(r["tokens_used"] for r in recs) / len(recs)
-        avg_b = sum(r["budget"] for r in recs) / len(recs)
-        pct   = (1 - avg_u / avg_b) * 100 if avg_b else 0
-        bar   = "#" * int(pct / 10) + "." * (10 - int(pct / 10))
+        avg_u   = sum(r["tokens_used"] for r in recs) / len(recs)
+        avg_raw = sum(_raw(r) for r in recs) / len(recs)
+        pct     = (1 - avg_u / avg_raw) * 100 if avg_raw else 0
+        bar     = "#" * int(pct / 10) + "." * (10 - int(pct / 10))
         click.echo(f"  {task:<16} {len(recs):>3}  {avg_u:>7.0f}t   {pct:>4.0f}%  {bar}")
 
     sep("Last queries")
     for r in retrievals[-4:]:
         ts    = _t.strftime("%d/%m %H:%M", _t.localtime(r["ts"]))
-        saved = (1 - r["tokens_used"] / r["budget"]) * 100 if r["budget"] else 0
+        r_raw = _raw(r)
+        saved = (1 - r["tokens_used"] / r_raw) * 100 if r_raw else 0
         click.echo(f"  {ts}  {r['task']:<14} {r['tokens_used']:>5}t  saved {saved:.0f}%")
 
     click.echo("")

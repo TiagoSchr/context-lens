@@ -1,11 +1,12 @@
 # Context Lens
 
-> CLI local que indexa seu projeto e monta contexto otimizado para assistentes de IA.
-> O assistente vê só o que importa — não o projeto inteiro.
+> Instala uma vez, configura com `lens setup`, e desaparece.
+> Claude Code, Copilot e Codex passam a receber contexto otimizado automaticamente
+> — sem copiar, colar ou abrir terminal no dia a dia.
 
 **Economia real: 75–98% de tokens** por query.
 
-> **v0.2 disponível** — setup automático multi-ferramenta, memória no contexto, projeção de economia no status, performance melhorada. Ver [Changelog](#changelog).
+> **v0.2 disponível** — automação completa pós-setup: MCP para Claude Code/Cursor/Continue.dev, task automática para Copilot, AGENTS.md para Codex. Ver [Changelog](#changelog).
 
 ---
 
@@ -13,13 +14,21 @@
 
 Assistentes como Claude Code e Copilot têm limite de contexto (tokens). Quanto maior o projeto, mais código irrelevante entra na janela, e as respostas ficam genéricas.
 
-O `lens` resolve em duas etapas:
+O `lens` resolve em três etapas:
+
+**0. Setup — uma vez por projeto**
+`lens setup` detecta qual assistente você usa e configura tudo:
+- Claude Code recebe um MCP server que consulta o índice automaticamente.
+- Copilot recebe uma task do VS Code que injeta contexto antes de cada sessão.
+- Codex recebe um `AGENTS.md` com instrução para usar o índice.
+
+Depois do setup: nenhum passo manual.
 
 **1. Indexação — uma vez por projeto**
 Lê todos os arquivos e extrai só os símbolos: funções, classes, parâmetros, docstrings, número de linha. Salva num banco SQLite local em `.ctx/index.db`.
 
 **2. Na hora da pergunta**
-Busca no índice os símbolos mais relevantes em ~0,2ms (sem ler disco) e monta um contexto focado dentro do orçamento de tokens. O assistente recebe só o trecho certo.
+Busca no índice os símbolos mais relevantes em ~0,2ms (sem ler disco) e monta um contexto focado dentro do orçamento de tokens. O assistente recebe só o trecho certo — automaticamente.
 
 ```
 Sem lens:  assistente lê store.py + builder.py + search.py + ...  →  18.828 tokens
@@ -73,18 +82,31 @@ rm -rf .ctx/    # remove o índice do projeto (opcional)
 
 ---
 
-## Uso diário
+## Início rápido
+
+Três comandos para começar em qualquer projeto:
 
 ```bash
-cd seu-projeto/
-
-lens index           # indexa o projeto (cria .ctx/ se não existir)
-lens setup           # configura automação para Claude Code / Copilot / Codex
-lens status          # saúde do índice + economia de tokens
-lens context "..."   # gera contexto → cole no assistente ou use via MCP
+pip install "context-lens[parse,mcp]"
+lens index && lens setup --auto
+lens status
+# Pronto. Abra seu assistente de IA.
 ```
 
-Exemplos:
+---
+
+## Uso diário
+
+Após `lens setup --auto`, você não precisa mais abrir o terminal para usar o Context Lens.
+
+| | Antes (v0.1) | Depois (v0.2) |
+|---|---|---|
+| Claude Code | `lens context "..."` → copiar → colar | Automático via MCP — nada a fazer |
+| GitHub Copilot | `Ctrl+Shift+L` → digitar query → abrir arquivo | Task automática ao abrir o projeto |
+| OpenAI Codex | `python scripts/lens-codex.py "..."` → clipboard | `AGENTS.md` direciona Codex automaticamente |
+| Cursor | Mesmo que Claude Code | Automático via MCP |
+
+**Uso manual via CLI** (para quem quer controle explícito sobre o contexto gerado):
 
 ```bash
 lens context "fix bug in checkout returning wrong total"
@@ -101,17 +123,16 @@ O `lens` funciona **por projeto**, igual ao `git`. Para cada projeto novo:
 
 ```bash
 cd meu-novo-projeto/
-lens index        # cria .ctx/ aqui e indexa
-lens setup        # configura Claude Code / Copilot / Codex automaticamente
-lens status       # confirma que está ativo
+lens index          # cria .ctx/ aqui e indexa
+lens setup --auto   # configura todas as integrações detectadas, sem perguntas
+lens status         # confirma que está ativo e mostra economia projetada
 ```
 
-`lens setup` detecta qual ferramenta você usa (pasta `.claude/`, `.vscode/`, etc.) e cria os arquivos certos (`CLAUDE.md`, `.vscode/tasks.json`, `.github/copilot-instructions.md`) com as instruções para o assistente usar `lens_context` automaticamente.
+`lens setup --auto` detecta qual ferramenta você usa (pasta `.claude/`, `.vscode/`, etc.) e cria os arquivos certos (`CLAUDE.md`, `.claude/mcp.json`, `.vscode/tasks.json`, `.github/copilot-instructions.md`, `AGENTS.md`) com as instruções para o assistente usar `lens_context` automaticamente — sem interação.
 
 ```bash
-lens setup              # interativo — pergunta e detecta ferramentas
-lens setup --auto       # silencioso — detecta e configura sem perguntar
-lens setup --manual     # pula — você prefere usar lens context manualmente
+lens setup --auto   # recomendado — detecta e configura sem perguntar
+lens setup          # interativo — pergunta antes de cada integração
 ```
 
 **Como confirmar que está ativo:**
@@ -138,80 +159,100 @@ Se aparecer `Index not found`, rode `lens index`.
 Guias detalhados por assistente:
 
 - [Claude Code](docs/claude-code.md) — MCP automático, slash commands
-- [GitHub Copilot](docs/copilot.md) — atalho `Ctrl+Shift+L` + arquivo aberto
-- [ChatGPT / OpenAI Codex](docs/chatgpt-codex.md) — clipboard automático
+- [GitHub Copilot](docs/copilot.md) — task automática + instructions
+- [ChatGPT / OpenAI Codex](docs/chatgpt-codex.md) — AGENTS.md automático ou clipboard
 - [Cursor](docs/cursor.md) — MCP nativo
 - [Continue.dev](docs/continue-dev.md) — MCP nativo, open source
 
 ---
 
-### Claude Code — automático via MCP
+### Claude Code — 100% automático via MCP
 
-Com o MCP server, o Claude Code consulta o índice automaticamente a cada pergunta.
-
-**1.** Instale com MCP:
+**Setup (uma vez):**
 ```bash
 pip install "context-lens[parse,mcp]"
+cd seu-projeto/
+lens setup --auto   # cria .claude/mcp.json + CLAUDE.md automaticamente
 ```
 
-**2.** Crie `.claude/mcp.json` na raiz do projeto:
-```json
-{
-  "mcpServers": {
-    "context-lens": {
-      "command": "lens-mcp",
-      "args": []
-    }
-  }
-}
-```
+A partir daí, o Claude Code consulta o índice automaticamente antes de responder qualquer pergunta sobre o código.
 
-Pronto. O Claude Code passa a usar automaticamente:
-- `lens_search` — busca símbolos relevantes
-- `lens_context` — monta contexto otimizado
-- `lens_status` — economia de tokens
+O que acontece por baixo:
+- `lens_search` — busca símbolos relevantes pelo nome
+- `lens_context` — monta contexto otimizado para o tipo de tarefa detectado
+- `lens_status` — exibe economia acumulada de tokens
 
 O servidor usa ~5MB RAM, responde em ~1ms, comunica via stdio (sem HTTP, sem porta aberta).
 
-**Sem MCP**, use os slash commands incluídos em `.claude/commands/`:
+**Alternativa sem MCP** (Claude CLI apenas):
+```bash
+lens context "fix the bug in checkout" | pbcopy   # macOS
+lens context "fix the bug in checkout" | clip      # Windows
+```
+
+**Slash commands** disponíveis em `.claude/commands/`:
 ```
 /ctx fix the bug in parse_file    ← gera e mostra o contexto
 /status                           ← economia de tokens
 /reindex                          ← re-indexa o projeto
 ```
 
+> **Configuração manual** (alternativa ao `lens setup --auto`): crie `.claude/mcp.json` na raiz do projeto:
+> ```json
+> {
+>   "mcpServers": {
+>     "context-lens": {
+>       "command": "lens-mcp",
+>       "args": []
+>     }
+>   }
+> }
+> ```
+
 ---
 
 ### GitHub Copilot (VS Code)
 
-**Atalho:** `Ctrl+Shift+L` → digita a query → `.ctx/ctx.md` atualizado e aberto automaticamente. O Copilot lê o arquivo aberto como contexto.
-
-**Script:**
+**Setup (uma vez):**
 ```bash
-python scripts/lens-context.py "fix bug in checkout" --target copilot
-# Gera .ctx/ctx.md e abre no VS Code
+lens setup --auto
 ```
 
-**Task:** `Ctrl+Shift+P` → "Tasks: Run Task" → "Context Lens: gerar contexto para Copilot"
+Cria automaticamente:
+- `.vscode/tasks.json` com task de auto-index ao abrir o projeto
+- `.github/copilot-instructions.md` instruindo o Copilot a usar o índice
+
+**Como funciona após setup:**
+- Ao abrir o projeto no VS Code: índice é atualizado em background
+- Copilot consulta `.github/copilot-instructions.md` para cada sugestão
+- Contexto relevante já está disponível sem ação manual
+
+**Uso manual** (quando precisar forçar contexto específico):
+```bash
+python scripts/lens-context.py "fix bug in checkout" --target copilot
+# Gera .ctx/ctx.md e abre no VS Code — Copilot lê como contexto ativo
+```
+
+Atalho VS Code: `Ctrl+Shift+P` → "Tasks: Run Task" → "Context Lens: gerar contexto"
 
 ---
 
 ### ChatGPT / OpenAI Codex
 
+**Modo automático (Codex CLI):**
+`lens setup --auto` cria `AGENTS.md` na raiz do projeto com instrução para o Codex usar `lens context` antes de iniciar qualquer tarefa. O Codex lê `AGENTS.md` automaticamente ao iniciar — zero config adicional.
+
+**Modo manual** (ChatGPT web / qualquer LLM):
 ```bash
 python scripts/lens-codex.py "fix bug in checkout"
-# Copia contexto para clipboard + abre chat.openai.com
+# Copia contexto otimizado para clipboard → cole no chat
 ```
 
-O script detecta o ambiente automaticamente (`--target auto` é o padrão):
-- Dentro do VS Code → modo Copilot (abre arquivo)
-- Terminal externo → clipboard
-
-No Windows, voce pode criar um alias rapido:
-
+Windows alias rápido:
 ```powershell
 doskey lc=python scripts/lens-codex.py $*
 ```
+Uso: `lc "fix bug in checkout"` → clipboard pronto para colar.
 
 ---
 
@@ -223,7 +264,7 @@ O [Continue.dev](https://continue.dev) suporta MCP nativamente. O arquivo `.cont
 
 ### Cursor
 
-Acesse Settings → MCP e adicione:
+`lens setup --auto` configura o MCP automaticamente. Para configuração manual, acesse Settings → MCP e adicione:
 ```json
 {
   "name": "context-lens",
@@ -236,13 +277,14 @@ Acesse Settings → MCP e adicione:
 
 ## Resumo de compatibilidade
 
-| Assistente | Modo | Automático? |
-|------------|------|-------------|
-| Claude Code CLI/IDE | MCP server | ✅ 100% automático |
-| Continue.dev (VS Code) | MCP server | ✅ 100% automático |
-| Cursor | MCP server | ✅ Um config |
-| GitHub Copilot | `Ctrl+Shift+L` + arquivo | ✅ Um atalho |
-| ChatGPT / Codex | script + clipboard | ✅ Um comando |
+| Assistente | Modo automático | Configuração |
+|------------|----------------|-------------|
+| Claude Code IDE/CLI | MCP server | `lens setup --auto` |
+| Cursor | MCP server | `lens setup --auto` |
+| Continue.dev (VS Code) | MCP server | `lens setup --auto` |
+| GitHub Copilot | VS Code task + instructions | `lens setup --auto` |
+| OpenAI Codex CLI | AGENTS.md | `lens setup --auto` |
+| ChatGPT web | Script + clipboard | `lc "query"` |
 
 ---
 
@@ -360,16 +402,23 @@ Se `LENS_TARGET` estiver definido, o `token_budget` efetivo usa o valor de `targ
 
 ### v0.2 — Março 2025
 
+#### Mudança de paradigma: manual → automático
+
+No v0.1, usar o Context Lens exigia rodar `lens context "..."` e copiar o resultado para o assistente em cada pergunta.
+
+No v0.2, `lens setup --auto` configura todas as integrações detectadas de uma vez. Após o setup, o assistente busca contexto automaticamente — via MCP (Claude Code, Cursor, Continue.dev), via task automática do VS Code (Copilot) ou via `AGENTS.md` (Codex). O usuário não precisa abrir o terminal durante o trabalho normal.
+
 #### Novidades
 
 **`lens setup` — configuração automática multi-ferramenta**
 Novo comando que detecta qual assistente você usa e cria os arquivos de instrução certos automaticamente:
-- `.claude/` presente → cria `CLAUDE.md` com instrução de usar `lens_context`
-- `.vscode/` presente → atualiza `tasks.json` com auto-index + atalho Copilot
+- `.claude/` presente → cria `CLAUDE.md` + `.claude/mcp.json` para MCP automático
+- `.vscode/` presente → atualiza `tasks.json` + cria `.github/copilot-instructions.md`
+- Codex detectado → cria `AGENTS.md` na raiz
 - Nenhum dos dois → cria arquivos para todos
 ```bash
+lens setup --auto    # recomendado — silencioso, sem perguntas
 lens setup           # interativo
-lens setup --auto    # silencioso, sem perguntas
 ```
 
 **`lens status` — projeção de economia desde o primeiro uso**
@@ -419,7 +468,7 @@ O assembler chamava `store.get_symbols_for_file(path)` individualmente para cada
 - Políticas por tipo de tarefa (navigate, explain, bugfix, refactor, generate_test)
 - MCP server para Claude Code, Continue.dev e Cursor
 - Slash commands `/ctx`, `/status`, `/reindex`, `/search`
-- VS Code tasks para Copilot (Ctrl+Shift+L) e ChatGPT (clipboard)
+- VS Code tasks para Copilot e ChatGPT (clipboard)
 - Memory Lite para hotspots, regras e notas de projeto
 - `lens watch` para re-indexação automática em background
 

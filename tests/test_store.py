@@ -42,6 +42,40 @@ def _insert_symbol(store: Store, file_id: int, name: str = "my_func", kind: str 
     store.commit()
 
 
+# ─────────────────────────────────────────────── meta
+
+class TestStoreMeta:
+    def test_get_meta_returns_none_for_missing_key(self, store):
+        assert store.get_meta("nonexistent_key") is None
+
+    def test_set_and_get_meta_roundtrip(self, store):
+        store.set_meta("project_tokens_total", "12345")
+        assert store.get_meta("project_tokens_total") == "12345"
+
+    def test_set_meta_updates_existing_key(self, store):
+        store.set_meta("project_tokens_total", "100")
+        store.set_meta("project_tokens_total", "200")
+        assert store.get_meta("project_tokens_total") == "200"
+
+    def test_set_meta_multiple_keys_are_independent(self, store):
+        store.set_meta("key_a", "value_a")
+        store.set_meta("key_b", "value_b")
+        assert store.get_meta("key_a") == "value_a"
+        assert store.get_meta("key_b") == "value_b"
+
+    def test_meta_persists_across_store_instances(self, tmp_path):
+        db_file = tmp_path / "persist.db"
+        conn1 = init_db(db_file)
+        s1 = Store(conn1)
+        s1.set_meta("project_tokens_total", "99999")
+        conn1.close()
+
+        conn2 = init_db(db_file)
+        s2 = Store(conn2)
+        assert s2.get_meta("project_tokens_total") == "99999"
+        conn2.close()
+
+
 # ─────────────────────────────────────────────── files
 
 class TestStoreFiles:

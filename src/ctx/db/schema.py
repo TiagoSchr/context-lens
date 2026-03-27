@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DDL = """
 PRAGMA journal_mode = WAL;
@@ -78,6 +78,12 @@ CREATE TABLE IF NOT EXISTS project_map (
     updated_at  REAL    NOT NULL
 );
 
+-- Project-level key-value metadata (token counts, timestamps, etc.)
+CREATE TABLE IF NOT EXISTS project_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 -- Optional lightweight memory
 CREATE TABLE IF NOT EXISTS memory_lite (
     id          INTEGER PRIMARY KEY,
@@ -105,6 +111,10 @@ def _migrate(conn: "sqlite3.Connection", from_version: int) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_kind_key ON memory_lite(kind, key)"
         )
         conn.execute("UPDATE schema_version SET version = 2")
+        conn.commit()
+    if from_version < 3:
+        # project_meta table is created by the DDL above (CREATE TABLE IF NOT EXISTS)
+        conn.execute("UPDATE schema_version SET version = 3")
         conn.commit()
 
 

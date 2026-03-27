@@ -87,11 +87,18 @@ python bench/benchmark.py   # performance
 
 ## Context Lens - Uso automatico
 
-Antes de ler multiplos arquivos para responder uma pergunta, SEMPRE usar:
-- `lens_context` (MCP) ou `lens context "<query>"` (CLI) para montar contexto
-- `lens_search` (MCP) ou `lens search "<query>"` para localizar simbolos
+Antes de usar Read, Glob, Grep ou qualquer ferramenta de leitura de arquivo,
+SEMPRE chamar lens_context primeiro — mesmo para um unico arquivo.
 
-Nunca ler 3+ arquivos diretamente se o indice .ctx/index.db existir.
-O contexto retornado ja inclui apenas o relevante, economizando 75-98% de tokens.
+Fluxo obrigatorio:
+1. Receber tarefa do usuario
+2. Chamar `lens_context "<query>"` via MCP → obtem contexto otimizado
+3. Usar o contexto retornado como base principal
+4. Usar Read/Glob apenas para arquivos especificos nao cobertos pelo contexto
+
+Ler arquivos sem chamar lens_context primeiro desperdiça 75-98% dos tokens
+disponiveis nesta sessao e reduz a qualidade das respostas seguintes.
+
+Para buscar simbolos pelo nome: usar `lens_search` (MCP) ou `lens search "<query>"`.
 
 Se .ctx/index.db nao existir no projeto atual: executar /setup-lens antes de tudo.

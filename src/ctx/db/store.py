@@ -184,6 +184,21 @@ class Store:
             "total_bytes": total_bytes,
         }
 
+    # ---------------------------------------------------------------- meta
+    def get_meta(self, key: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT value FROM project_meta WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self._conn.execute(
+            "INSERT INTO project_meta(key, value) VALUES(?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        self._conn.commit()
+
     # ---------------------------------------------------------------- commit
     def commit(self) -> None:
         self._conn.commit()

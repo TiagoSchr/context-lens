@@ -19,14 +19,21 @@ class CtxLogger:
     def intent(self, query: str, task: str, confidence: float) -> None:
         self._write("intent", {"query": query[:120], "task": task, "confidence": confidence})
 
-    def retrieval(self, task: str, targets: list[str], tokens_used: int, budget: int) -> None:
-        self._write("retrieval", {
+    def retrieval(self, task: str, targets: list[str], tokens_used: int, budget: int,
+                  tokens_raw: int = 0) -> None:
+        data: dict = {
             "task": task,
             "targets": targets[:20],
             "tokens_used": tokens_used,
             "budget": budget,
             "utilization": round(tokens_used / budget, 3) if budget else 0,
-        })
+        }
+        if tokens_raw > 0:
+            data["tokens_raw"] = tokens_raw
+            data["real_saving_pct"] = round(
+                (tokens_raw - tokens_used) / tokens_raw * 100, 1
+            )
+        self._write("retrieval", data)
 
     def index(self, path: str, symbols: int, skipped: bool = False) -> None:
         self._write("index", {"path": path, "symbols": symbols, "skipped": skipped})
