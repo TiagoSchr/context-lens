@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "context-lens"
+name = "context-lens-v2"
 version = "2.0.0"
 description = "Context Lens — lightweight local CLI that indexes your codebase and assembles optimized context for AI coding assistants"
 readme = "README.md"
