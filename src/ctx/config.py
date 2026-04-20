@@ -56,8 +56,6 @@ def normalize_target_name(target: str | None) -> str | None:
         "copilot-chat": "copilot",
         "visual studio code": "copilot",
         "vscode": "copilot",
-        "visual studio code": "copilot",
-        "vscode": "copilot",
         # Cursor
         "cursor-ai": "cursor",
     }

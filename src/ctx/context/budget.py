@@ -1,5 +1,6 @@
 """Token budget management with optional tiktoken support."""
 from __future__ import annotations
+from pathlib import Path
 
 _tiktoken_enc = None
 _tiktoken_available: bool | None = None

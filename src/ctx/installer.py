@@ -24,7 +24,6 @@ import os
 import platform
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Callable
 
@@ -189,7 +188,7 @@ def _install_extension(cli: str, ide_label: str, dry_run: bool = False) -> Insta
     # Find .vsix
     vsix = _bundled_vsix_path()
     if not vsix:
-        result.add(f"Bundled .vsix not found (run 'cd vscode-context-lens && npx @vscode/vsce package')", "error")
+        result.add("Bundled .vsix not found (run 'cd vscode-context-lens && npx @vscode/vsce package')", "error")
         return result
 
     # Install

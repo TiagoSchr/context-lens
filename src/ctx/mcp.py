@@ -870,7 +870,7 @@ async def _tool_explain_symbol(args: dict) -> list[types.TextContent]:
                 if len(body) > 60:
                     body = body[:60] + ["    ... (truncated)"]
                 lines.append(f"\nSource (lines {row['start_line']}-{row['end_line']}):")
-                lines.extend(f"  {l}" for l in body)
+                lines.extend(f"  {line}" for line in body)
             except OSError:
                 pass
 

@@ -1146,7 +1146,8 @@ def analytics_cmd(period, export):
         click.echo(json.dumps(summary, indent=2))
         return
     if export == "csv":
-        import csv, io
+        import csv
+        import io
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(["date", "queries", "tokens_used", "tokens_saved", "saving_pct"])
