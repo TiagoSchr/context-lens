@@ -29,6 +29,5 @@ Thumbs.db
 vscode-context-lens/node_modules/
 vscode-context-lens/out/
 *.vsix
-
-# Package data binary (built on release)
-src/ctx/data/context-lens.vsix
+# keep the bundled vsix inside the Python package
+!src/ctx/data/context-lens.vsix
