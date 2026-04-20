@@ -101,13 +101,13 @@ A extensão VS Code mostra um painel em tempo real na barra lateral (Activity Ba
 
 ```bash
 # Com tree-sitter (recomendado — parsing preciso)
-pip install "context-lens[parse]"
+pip install "context-lens-v2[parse]"
 
 # Com servidor MCP (para Claude Code, Cursor, Continue.dev)
-pip install "context-lens[parse,mcp]"
+pip install "context-lens-v2[parse,mcp]"
 
 # Tudo (parsing + MCP + tiktoken + file watch)
-pip install "context-lens[all,mcp]"
+pip install "context-lens-v2[all,mcp]"
 ```
 
 Verificar:
@@ -135,7 +135,7 @@ pip install -e ".[parse,mcp]"
 **Desinstalar:**
 
 ```bash
-pip uninstall context-lens
+pip uninstall context-lens-v2
 rm -rf .ctx/    # remove o índice do projeto (opcional)
 ```
 
@@ -146,7 +146,7 @@ rm -rf .ctx/    # remove o índice do projeto (opcional)
 Três comandos para começar em qualquer projeto:
 
 ```bash
-pip install "context-lens[parse,mcp]"
+pip install "context-lens-v2[parse,mcp]"
 lens index && lens install
 lens status
 # Pronto. Abra seu assistente de IA.

@@ -11,7 +11,7 @@ Com o MCP server, o Claude Code consulta o índice automaticamente a cada pergun
 ### Instalação
 
 ```bash
-pip install "context-lens[parse,mcp]"
+pip install "context-lens-v2[parse,mcp]"
 ```
 
 ### Configuração

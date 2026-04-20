@@ -87,13 +87,13 @@ The index lives in `.ctx/` inside each project and is ignored by git.
 
 ```bash
 # With tree-sitter (recommended — precise parsing)
-pip install "context-lens[parse]"
+pip install "context-lens-v2[parse]"
 
 # With MCP server (for Claude Code, Cursor, Continue.dev)
-pip install "context-lens[parse,mcp]"
+pip install "context-lens-v2[parse,mcp]"
 
 # Everything (parsing + MCP + tiktoken + file watch)
-pip install "context-lens[all,mcp]"
+pip install "context-lens-v2[all,mcp]"
 ```
 
 Verify:
@@ -121,7 +121,7 @@ pip install -e ".[parse,mcp]"
 **Uninstall:**
 
 ```bash
-pip uninstall context-lens
+pip uninstall context-lens-v2
 rm -rf .ctx/    # remove the project index (optional)
 ```
 
@@ -132,7 +132,7 @@ rm -rf .ctx/    # remove the project index (optional)
 Three commands to get started on any project:
 
 ```bash
-pip install "context-lens[parse,mcp]"
+pip install "context-lens-v2[parse,mcp]"
 lens index && lens setup --auto
 lens status
 # Done. Open your AI assistant.

@@ -62,7 +62,7 @@ def check_health(store: Any, root: Path, cfg: dict) -> HealthReport:
         if density < 1.0:
             report.suggest(
                 f"Low symbol density ({density:.1f} symbols/file). "
-                "Consider `pip install context-lens[parse]` for tree-sitter parsing."
+                "Consider `pip install context-lens-v2[parse]` for tree-sitter parsing."
             )
         else:
             report.note(f"Symbol density: {density:.1f} symbols/file (healthy).")

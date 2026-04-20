@@ -13,7 +13,7 @@ Instale a extensão Continue no VS Code:
 Instale o Context Lens com suporte a MCP:
 
 ```bash
-pip install "context-lens[parse,mcp]"
+pip install "context-lens-v2[parse,mcp]"
 ```
 
 Indexe seu projeto:

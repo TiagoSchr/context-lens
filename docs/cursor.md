@@ -9,7 +9,7 @@ O Cursor suporta MCP nativamente. Configure uma vez e o Context Lens passa a ser
 Instale com suporte a MCP:
 
 ```bash
-pip install "context-lens[parse,mcp]"
+pip install "context-lens-v2[parse,mcp]"
 ```
 
 Indexe seu projeto:
