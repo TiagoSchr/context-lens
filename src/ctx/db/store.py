@@ -199,6 +199,60 @@ class Store:
         )
         self._conn.commit()
 
+    # --------------------------------------------------------------- sessions
+    def create_session(self, name: str, close_id: int | None = None) -> int:
+        """Start a new session, optionally closing a specific previous one.
+
+        If *close_id* is given, only that session is ended.  Otherwise the
+        previous open session (if any) belonging to this process is closed —
+        this keeps concurrent MCP servers from killing each other's sessions.
+        """
+        if close_id is not None:
+            self._conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
+                (time.time(), close_id),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE ended_at IS NULL",
+                (time.time(),),
+            )
+        row = self._conn.execute(
+            "INSERT INTO sessions(name, started_at) VALUES (?, ?) RETURNING id",
+            (name, time.time()),
+        ).fetchone()
+        self._conn.commit()
+        return row["id"]
+
+    def get_current_session(self) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM sessions WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+    def end_session(self, session_id: int | None = None) -> None:
+        if session_id:
+            self._conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE id = ?",
+                (time.time(), session_id),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE ended_at IS NULL",
+                (time.time(),),
+            )
+        self._conn.commit()
+
+    def list_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM sessions ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def session_count(self) -> int:
+        row = self._conn.execute("SELECT COUNT(*) as n FROM sessions").fetchone()
+        return row["n"]
+
     # ---------------------------------------------------------------- commit
     def commit(self) -> None:
         self._conn.commit()

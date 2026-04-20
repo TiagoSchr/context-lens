@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "context-lens": {
+      "command": "lens-mcp",
+      "args": [
+        "--tool",
+        "copilot"
+      ]
+    }
+  }
+}

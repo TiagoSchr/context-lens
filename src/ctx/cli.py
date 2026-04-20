@@ -30,7 +30,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from .config import (
     find_project_root, ctx_dir, db_path, log_path, load_config, save_config, DEFAULT_CONFIG,
-    config_path, merge_config,
+    config_path, merge_config, detect_client_tool,
 )
 from .db.schema import init_db
 from .db.store import Store
@@ -38,6 +38,7 @@ from .indexer.hasher import hash_file
 from .indexer.walker import walk_project
 from .indexer.extractor import extract_symbols
 from .context.builder import build_context
+from .context.budget import compute_tokens_raw
 from .context.levels import build_level0, build_level1
 from .retrieval.intent import classify_intent
 from .retrieval.search import search_symbols, find_related_paths
@@ -469,6 +470,27 @@ def index(force, incremental, quiet, verbose, path):
 
     elapsed = time.time() - t0
 
+    # Write stats.json for the VS Code extension to read without a subprocess
+    try:
+        s = store.stats()
+        dp = db_path(root)
+        _proj_str = store.get_meta("project_tokens_total")
+        _stats_data = {
+            "files": s["files"],
+            "symbols": s["symbols"],
+            "db_kb": dp.stat().st_size // 1024 if dp.exists() else 0,
+            "last_indexed": s.get("last_indexed") or 0,
+            "token_budget": cfg.get("token_budget", 8000),
+            "project_tokens_total": int(_proj_str) if _proj_str else 0,
+            "by_language": s.get("by_language", {}),
+            "total_bytes": s.get("total_bytes", 0),
+        }
+        _stats_path = ctx_dir(root) / "stats.json"
+        with open(_stats_path, "w", encoding="utf-8") as _f:
+            json.dump(_stats_data, _f, indent=2)
+    except Exception:
+        pass  # never interrupt indexing due to stats write failure
+
     rate = files_checked / elapsed if elapsed > 0 else 0
     if not quiet:
         click.echo(f"\n{'='*44}")
@@ -554,7 +576,8 @@ def context_cmd(query, task, budget, extra_files, show_meta, output):
         if ef_norm not in relevant_paths:
             relevant_paths.insert(0, ef_norm)
 
-    token_budget = budget or cfg["token_budget"]
+    detected_tool = detect_client_tool()
+    token_budget = budget or cfg.get("target_budgets", {}).get(detected_tool, cfg["token_budget"])
     buffer = cfg["budget_buffer"]
 
     ctx_text, meta = build_context(
@@ -568,9 +591,21 @@ def context_cmd(query, task, budget, extra_files, show_meta, output):
         buffer_ratio=buffer,
     )
 
-    _raw_str = store.get_meta("project_tokens_total")
-    _tokens_raw = int(_raw_str) if _raw_str else 0
-    logger.retrieval(task, relevant_paths, meta["tokens_used"], meta["budget"], tokens_raw=_tokens_raw)
+    _tokens_raw = compute_tokens_raw(
+        root,
+        meta.get("paths_included", []),
+        meta["tokens_used"],
+        meta["budget"],
+    )
+    logger.retrieval(
+        task,
+        relevant_paths,
+        meta["tokens_used"],
+        meta["budget"],
+        tokens_raw=_tokens_raw,
+        tool=detected_tool or "unknown",
+        query=query,
+    )
 
     if output:
         Path(output).write_text(ctx_text, encoding="utf-8")
@@ -581,6 +616,75 @@ def context_cmd(query, task, budget, extra_files, show_meta, output):
     if show_meta:
         click.echo("\n--- metadata ---", err=True)
         click.echo(json.dumps(meta, indent=2), err=True)
+
+
+# ─────────────────────────────────────────────────── auto-context
+
+AUTO_CONTEXT_DEFAULT_BUDGET = 6_000
+
+@main.command("auto-context")
+@click.option("--budget", "-b", default=AUTO_CONTEXT_DEFAULT_BUDGET, type=int,
+              help=f"Token budget (default: {AUTO_CONTEXT_DEFAULT_BUDGET})")
+@click.option("--output", "-o", default=None, type=click.Path(),
+              help="Write context to file instead of stdout")
+def auto_context_cmd(budget, output):
+    """Build comprehensive project context for automatic injection.
+
+    Uses the 'auto_overview' policy: project map + complete file index +
+    300 top symbols + skeletons of key files.  Designed to be injected
+    into chatInstructions so every AI interaction starts with full project
+    awareness.
+    """
+    root = find_project_root() or Path.cwd()
+    store, cfg, logger = _require_index(root)
+
+    query = "full project overview: all files, key functions, classes, entry points"
+    task = "auto_overview"
+
+    # Broad search for maximum symbol coverage
+    relevant_symbols = search_symbols(store, query, limit=100)
+    relevant_paths = find_related_paths(store, relevant_symbols)
+
+    # Add entry point files that may not appear in search
+    for candidate in ("src/ctx/cli.py", "src/ctx/mcp.py", "src/ctx/__init__.py"):
+        if candidate not in relevant_paths:
+            relevant_paths.append(candidate)
+
+    detected_tool = detect_client_tool()
+    buffer = cfg["budget_buffer"]
+
+    ctx_text, meta = build_context(
+        store=store,
+        root=root,
+        task=task,
+        query=query,
+        relevant_symbols=relevant_symbols,
+        relevant_paths=relevant_paths,
+        budget=budget,
+        buffer_ratio=buffer,
+    )
+
+    _tokens_raw = compute_tokens_raw(
+        root,
+        meta.get("paths_included", []),
+        meta["tokens_used"],
+        meta["budget"],
+    )
+    logger.retrieval(
+        task,
+        relevant_paths,
+        meta["tokens_used"],
+        meta["budget"],
+        tokens_raw=_tokens_raw,
+        tool=detected_tool or "unknown",
+        query=query,
+    )
+
+    if output:
+        Path(output).write_text(ctx_text, encoding="utf-8")
+        click.echo(f"Auto-context written to {output} ({meta['tokens_used']} tokens)", err=True)
+    else:
+        click.echo(ctx_text)
 
 
 # ─────────────────────────────────────────────────────────── show
@@ -1004,3 +1108,154 @@ def config_cmd(key, value):
     cfg[key] = parsed
     save_config(root, cfg)
     click.echo(f"Set {key} = {parsed}")
+
+
+# ─────────────────────────────────────────────────────────── analytics
+
+@main.command("analytics")
+@click.option("--period", default="week",
+              type=click.Choice(["day", "week", "month", "all"]),
+              help="Time period to analyse (default: week)")
+@click.option("--export", default=None,
+              type=click.Choice(["json", "csv"]),
+              help="Export data to stdout in JSON or CSV format")
+def analytics_cmd(period, export):
+    """Show token savings analytics for this project.
+
+    Reads the .ctx/log.jsonl file and computes how many tokens were saved,
+    which task types are most efficient, and which files are queried most.
+    """
+    from .analytics import compute_summary, format_report
+
+    root = find_project_root() or Path.cwd()
+    lp = log_path(root)
+    if not lp.exists():
+        click.echo("No query log found. Run `lens context` a few times first.", err=True)
+        return
+
+    _raw_str = None
+    dp = db_path(root)
+    if dp.exists():
+        conn = init_db(dp)
+        _raw_str = Store(conn).get_meta("project_tokens_total")
+
+    project_tokens = int(_raw_str) if _raw_str else 0
+    summary = compute_summary(lp, project_tokens)
+
+    if export == "json":
+        click.echo(json.dumps(summary, indent=2))
+        return
+    if export == "csv":
+        import csv, io
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["date", "queries", "tokens_used", "tokens_saved", "saving_pct"])
+        for row in summary.get("by_day", []):
+            writer.writerow([row["date"], row["queries"], row["tokens_used"],
+                             row["tokens_saved"], f"{row['saving_pct']:.1f}"])
+        click.echo(buf.getvalue())
+        return
+
+    click.echo(format_report(summary, period=period))
+
+
+# ─────────────────────────────────────────────────────────── health
+
+@main.command("health")
+def health_cmd():
+    """Check project health: index freshness, symbol density, budget advice.
+
+    Surfaces actionable recommendations to keep Context Lens working well.
+    """
+    from .health import check_health, format_health_report
+
+    root = find_project_root() or Path.cwd()
+    dp = db_path(root)
+    if not dp.exists():
+        click.echo("Index not found. Run `lens index` first.", err=True)
+        return
+
+    conn = init_db(dp)
+    store = Store(conn)
+    cfg = load_config(root)
+    report = check_health(store, root, cfg)
+    click.echo(format_health_report(report))
+
+
+# ─────────────────────────────────────────────────────────── install
+
+_ALL_GLOBAL_IDES = ["claude-desktop", "cursor", "vscode", "zed", "continue", "jetbrains"]
+_ALL_PROJECT_IDES = ["cursor", "vscode", "continue", "claude-code"]
+_ALL_IDES = sorted(set(_ALL_GLOBAL_IDES + _ALL_PROJECT_IDES))
+
+
+@main.command("install")
+@click.option("--global", "global_", is_flag=True,
+              help="Install in global IDE configs (home directory).")
+@click.option("--ide", default="all",
+              type=click.Choice(_ALL_IDES + ["all"]),
+              help="IDE to configure (default: all detected).")
+@click.option("--dry-run", is_flag=True,
+              help="Show what would be done without writing any files.")
+@click.option("--list-ides", is_flag=True,
+              help="List detected IDEs and exit.")
+def install_cmd(global_, ide, dry_run, list_ides):
+    """Install lens-mcp in IDE/CLI MCP configs — zero manual editing.
+
+    \b
+    Examples:
+      lens install                        # project-local, auto-detect IDEs
+      lens install --global               # global install for all detected IDEs
+      lens install --global --ide cursor  # global Cursor only
+      lens install --dry-run              # preview without writing
+
+    Supported IDEs (global):  claude-desktop, cursor, vscode, zed, continue, jetbrains
+    Supported IDEs (project): cursor, vscode, continue, claude-code
+
+    After installing, restart your IDE to load the new MCP server.
+    Verify with: lens status
+    """
+    from .installer import (
+        install, format_results,
+        detect_global_ides, detect_project_ides,
+    )
+
+    root = find_project_root() or Path.cwd()
+
+    if list_ides:
+        g = detect_global_ides()
+        p = detect_project_ides(root)
+        click.echo("Detected IDEs (global):  " + (", ".join(g) if g else "(none)"))
+        click.echo("Detected IDEs (project): " + (", ".join(p) if p else "(none)"))
+        return
+
+    scope = "global" if global_ else f"project ({root.name})"
+    click.echo(f"\n  Context Lens — MCP Install  [{scope}]")
+    click.echo("  " + "─" * 40)
+    if dry_run:
+        click.echo("  DRY RUN — no files will be written\n")
+
+    results = install(root=root, global_=global_, ide=ide, dry_run=dry_run)
+
+    if not results:
+        click.echo("  No IDEs matched. Try --list-ides to see what's detected.")
+        return
+
+    click.echo(format_results(results))
+
+    installed = sum(1 for r in results for _, s in r.actions if s == "installed")
+    would_install = sum(1 for r in results for _, s in r.actions if s == "dry_run")
+    already = sum(1 for r in results for _, s in r.actions if s == "already_installed")
+    click.echo()
+    if dry_run:
+        click.echo(f"  Would install in {would_install} config(s), {already} already configured.")
+    else:
+        if installed:
+            click.echo(f"  Installed in {installed} config(s). Restart your IDE to apply.")
+        if already:
+            click.echo(f"  {already} config(s) already had context-lens — nothing changed.")
+        if not installed and not already:
+            click.echo("  Nothing installed (check --list-ides to debug detection).")
+        if installed and not global_:
+            click.echo("\n  Tip: run `lens install --global` to also configure global IDE settings.")
+    click.echo()

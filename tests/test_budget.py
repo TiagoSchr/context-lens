@@ -184,3 +184,55 @@ class TestBudgetUtilization:
     def test_utilization_is_float(self):
         b = Budget(1000)
         assert isinstance(b.utilization(), float)
+
+
+# ─────────────────────────────────────────────── compute_tokens_raw
+
+class TestComputeTokensRaw:
+    def test_never_below_tokens_used(self, tmp_path):
+        """Even with no files, result >= tokens_used."""
+        from src.ctx.context.budget import compute_tokens_raw
+        result = compute_tokens_raw(tmp_path, [], tokens_used=500, budget=200)
+        assert result >= 500
+
+    def test_never_below_budget(self, tmp_path):
+        from src.ctx.context.budget import compute_tokens_raw
+        result = compute_tokens_raw(tmp_path, [], tokens_used=100, budget=8000)
+        assert result >= 8000
+
+    def test_uses_actual_file_tokens(self, tmp_path):
+        from src.ctx.context.budget import compute_tokens_raw
+        f = tmp_path / "big.py"
+        f.write_text("x = 1\n" * 5000, encoding="utf-8")
+        result = compute_tokens_raw(tmp_path, ["big.py"], tokens_used=100, budget=200)
+        assert result > 200  # the file is much bigger than budget
+
+    def test_small_project_no_negative_savings(self, tmp_path):
+        """Regression: small project must not produce tokens_raw < tokens_used."""
+        from src.ctx.context.budget import compute_tokens_raw
+        tiny = tmp_path / "tiny.py"
+        tiny.write_text("x = 1", encoding="utf-8")
+        result = compute_tokens_raw(tmp_path, ["tiny.py"], tokens_used=234, budget=8000)
+        assert result >= 234
+        saving_pct = (result - 234) / result * 100
+        assert saving_pct >= 0, f"Saving must never be negative, got {saving_pct}%"
+
+    def test_raw_baseline_uses_included_files(self, tmp_path):
+        """Baseline should be the raw tokens of included files, not the whole project."""
+        (tmp_path / "a.py").write_text("x = 1\n" * 50, encoding="utf-8")
+        (tmp_path / "b.py").write_text("y = 2\n" * 50, encoding="utf-8")
+        from src.ctx.context.budget import compute_tokens_raw
+        result = compute_tokens_raw(
+            tmp_path, ["a.py", "b.py"], tokens_used=100, budget=4000,
+        )
+        # Should be based on the 2 files, not the whole project
+        assert result >= 100
+        assert result < 50_000  # definitely not the project total
+
+    def test_raw_baseline_at_least_budget(self, tmp_path):
+        """Even with no files, result >= budget."""
+        from src.ctx.context.budget import compute_tokens_raw
+        result = compute_tokens_raw(
+            tmp_path, [], tokens_used=500, budget=4000,
+        )
+        assert result >= 4000

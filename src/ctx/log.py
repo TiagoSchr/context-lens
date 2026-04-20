@@ -16,12 +16,17 @@ class CtxLogger:
         with open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    def intent(self, query: str, task: str, confidence: float) -> None:
-        self._write("intent", {"query": query[:120], "task": task, "confidence": confidence})
+    def intent(self, query: str, task: str, confidence: float,
+               session_id: int | None = None) -> None:
+        data: dict[str, Any] = {"query": query[:120], "task": task, "confidence": confidence}
+        if session_id is not None:
+            data["session_id"] = session_id
+        self._write("intent", data)
 
     def retrieval(self, task: str, targets: list[str], tokens_used: int, budget: int,
-                  tokens_raw: int = 0) -> None:
-        data: dict = {
+                  tokens_raw: int = 0, tool: str | None = None,
+                  session_id: int | None = None, query: str = "") -> None:
+        data: dict[str, Any] = {
             "task": task,
             "targets": targets[:20],
             "tokens_used": tokens_used,
@@ -33,6 +38,12 @@ class CtxLogger:
             data["real_saving_pct"] = round(
                 (tokens_raw - tokens_used) / tokens_raw * 100, 1
             )
+        if tool:
+            data["tool"] = tool
+        if session_id is not None:
+            data["session_id"] = session_id
+        if query:
+            data["query"] = query[:120]
         self._write("retrieval", data)
 
     def index(self, path: str, symbols: int, skipped: bool = False) -> None:

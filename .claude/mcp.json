@@ -2,7 +2,10 @@
   "mcpServers": {
     "context-lens": {
       "command": "lens-mcp",
-      "args": []
+      "args": [
+        "--tool",
+        "claude"
+      ]
     }
   }
 }

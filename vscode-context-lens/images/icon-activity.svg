@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+     stroke="#c5c5c5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Magnifying glass (search/lens) -->
+  <circle cx="10.5" cy="10.5" r="6.5"/>
+  <line x1="16.5" y1="16.5" x2="21" y2="21"/>
+  <!-- Plus inside the lens = "add context / expand" -->
+  <line x1="7.5" y1="10.5" x2="13.5" y2="10.5"/>
+  <line x1="10.5" y1="7.5" x2="10.5" y2="13.5"/>
+</svg>

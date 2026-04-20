@@ -17,6 +17,15 @@
             "command": "python -m ctx.scripts.hooks pre-bash"
           }
         ]
+      },
+      {
+        "matcher": "Read|Glob|Grep|ListDirectory",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m ctx.scripts.hooks pre-read"
+          }
+        ]
       }
     ],
     "PostToolUse": [

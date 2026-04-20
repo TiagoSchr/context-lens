@@ -8,7 +8,10 @@ from __future__ import annotations
 import re
 
 
-TASKS = ("explain", "bugfix", "refactor", "generate_test", "navigate")
+TASKS = (
+    "explain", "bugfix", "refactor", "generate_test", "navigate",
+    "document", "optimize", "security_review",
+)
 
 # (pattern, task, weight)
 _RULES: list[tuple[re.Pattern, str, float]] = [
@@ -24,6 +27,15 @@ _RULES: list[tuple[re.Pattern, str, float]] = [
     # generate_test
     (re.compile(r"\b(tests?|specs?|coverage|unittest|pytest|jest|assert)\b", re.I), "generate_test", 0.9),
     (re.compile(r"\b(generate|write|create|add)\b.{0,20}\b(tests?|specs?)\b", re.I), "generate_test", 0.95),
+    # document
+    (re.compile(r"\b(document|docstring|docs?|comment|annotate|readme)\b", re.I), "document", 0.9),
+    (re.compile(r"\b(write|add|generate)\b.{0,20}\b(docs?|docstring|comments?)\b", re.I), "document", 0.95),
+    # optimize
+    (re.compile(r"\b(optim|performance|speed|slow|fast|bottleneck|latency|throughput|memory usage|cpu)\b", re.I), "optimize", 0.9),
+    (re.compile(r"\b(make.{0,10}faster|make.{0,10}efficient|reduce.{0,10}(time|memory))\b", re.I), "optimize", 0.85),
+    # security_review
+    (re.compile(r"\b(security|vulnerability|vuln|inject|xss|csrf|auth|authz|exploit|owasp|sanitize|escape)\b", re.I), "security_review", 0.95),
+    (re.compile(r"\b(is (this|it) safe|security review|audit|pentest|attack)\b", re.I), "security_review", 0.9),
 ]
 
 

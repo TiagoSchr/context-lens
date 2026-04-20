@@ -249,10 +249,11 @@ def test_context_query_logs_tokens_raw_from_meta(tmp_path):
     assert "tokens_raw" in rec, "tokens_raw ausente no log — não foi registrado"
     assert rec["tokens_raw"] > 0
 
-    # tokens_raw deve bater com o meta
-    db_file = tmp_path / ".ctx" / "index.db"
-    project_tokens = int(Store(init_db(db_file)).get_meta("project_tokens_total"))
-    assert rec["tokens_raw"] == project_tokens
+    # tokens_raw must be >= tokens_used (no negative savings)
+    assert rec["tokens_raw"] >= rec["tokens_used"], (
+        f"tokens_raw ({rec['tokens_raw']}) < tokens_used ({rec['tokens_used']}): "
+        "baseline must never be below actual usage"
+    )
 
 
 def test_real_saving_pct_in_log_is_accurate(tmp_path):
@@ -604,3 +605,126 @@ def test_incremental_reindex_only_reports_changed_files(tmp_path):
     assert "  Unchanged" in second_stdout
     assert "  Indexed                 1 file(s)" in second_stdout
     assert "  Unchanged               1 file(s)" in second_stdout
+
+
+# ─────────────────────── auto-context injection tests (extension simulates this)
+
+def test_lens_context_cli_produces_output_for_auto_inject(tmp_path):
+    """lens context CLI produces non-empty output that can be injected into chatInstructions."""
+    _build_project(tmp_path)
+    _run_cli(tmp_path, ["index", "--quiet"])
+
+    stdout, _ = _run_cli(tmp_path, ["context", "project architecture overview"])
+    assert len(stdout) > 0, "lens context produced empty output"
+    assert "PROJECT MAP" in stdout or "SYMBOLS" in stdout or "Context" in stdout, (
+        "output should contain project map, symbols, or context header"
+    )
+
+
+def test_lens_context_output_stays_within_budget(tmp_path):
+    """Auto-context uses budget=3000. Verify output fits within budget."""
+    _build_heavy_project(tmp_path)
+    _run_cli(tmp_path, ["index", "--quiet"])
+
+    output = io.StringIO()
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        with redirect_stdout(output), redirect_stderr(io.StringIO()):
+            context_main([
+                "project architecture overview: key files, entry points",
+                "--budget", "3000",
+                "--target", "copilot",
+                "--no-clip",
+            ])
+    finally:
+        os.chdir(old_cwd)
+
+    result = output.getvalue()
+    token_count = count_tokens(result)
+    # Allow 12% overhead for headers/metadata (same as budget.py available_budget)
+    assert token_count <= 3000, (
+        f"auto-context output has {token_count} tokens, exceeds budget of 3000"
+    )
+
+
+def test_lens_context_logs_retrieval_for_detection(tmp_path):
+    """Each lens context call must log a retrieval event for freshness detection."""
+    _build_project(tmp_path)
+    _run_cli(tmp_path, ["index", "--quiet"])
+
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            context_main(["explain service flow", "--target", "copilot", "--no-clip"])
+    finally:
+        os.chdir(old_cwd)
+
+    log_path = tmp_path / ".ctx" / "log.jsonl"
+    assert log_path.exists(), "log.jsonl not created"
+
+    records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    retrievals = [r for r in records if r.get("event") == "retrieval"]
+
+    assert len(retrievals) >= 1, "no retrieval events logged"
+    rec = retrievals[-1]
+    assert "ts" in rec, "retrieval missing ts field"
+    assert "tokens_used" in rec, "retrieval missing tokens_used"
+    assert "tokens_raw" in rec, "retrieval missing tokens_raw"
+    assert rec["tokens_raw"] > 0, "tokens_raw should be positive"
+    assert rec["tokens_used"] > 0, "tokens_used should be positive"
+    assert rec["tokens_raw"] >= rec["tokens_used"], (
+        f"tokens_raw ({rec['tokens_raw']}) < tokens_used ({rec['tokens_used']})"
+    )
+
+
+def test_multiple_context_calls_all_logged(tmp_path):
+    """Multiple context calls should all be logged for monitoring."""
+    _build_project(tmp_path)
+    _run_cli(tmp_path, ["index", "--quiet"])
+
+    queries = [
+        "explain service flow",
+        "fix bug in compute_total",
+        "overview of project architecture",
+    ]
+    for query in queries:
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                context_main([query, "--target", "copilot", "--no-clip"])
+        finally:
+            os.chdir(old_cwd)
+
+    log_path = tmp_path / ".ctx" / "log.jsonl"
+    records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    retrievals = [r for r in records if r.get("event") == "retrieval"]
+
+    assert len(retrievals) == 3, f"expected 3 retrievals, got {len(retrievals)}"
+
+    # Timestamps should be monotonically increasing
+    timestamps = [r["ts"] for r in retrievals]
+    assert timestamps == sorted(timestamps), "timestamps should be monotonically increasing"
+
+
+def test_context_output_contains_relevant_symbols(tmp_path):
+    """Context about a specific query should include relevant symbols."""
+    _build_project(tmp_path)
+    _run_cli(tmp_path, ["index", "--quiet"])
+
+    stdout, _ = _run_cli(tmp_path, ["context", "compute_total function"])
+    assert "compute_total" in stdout, "query about compute_total should return compute_total in context"
+
+
+def test_context_output_format_suitable_for_injection(tmp_path):
+    """Context output should be plain text suitable for markdown embedding."""
+    _build_project(tmp_path)
+    _run_cli(tmp_path, ["index", "--quiet"])
+
+    stdout, _ = _run_cli(tmp_path, ["context", "project overview"])
+    # Should be valid text, no binary garbage
+    assert stdout.isprintable() or "\n" in stdout, "output should be printable text"
+    # Should contain structural markers (=== for sections or # for headers)
+    assert "===" in stdout or "#" in stdout, "output should have structural markers"

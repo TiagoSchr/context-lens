@@ -1,71 +1,116 @@
 # Context Lens
 
-> Instala uma vez, configura com `lens setup`, e desaparece.
-> Claude Code, Copilot e Codex passam a receber contexto otimizado automaticamente
-> — sem copiar, colar ou abrir terminal no dia a dia.
+> 🇧🇷 [Leia em Português](README.pt-BR.md)
 
-**Economia real: 75–98% de tokens** por query.
+> Index once, setup once, forget about it.
+> GitHub Copilot receives optimized context automatically via `@lens` — no copy-paste, no terminal.
 
-> **v0.2 disponível** — automação completa pós-setup: MCP para Claude Code/Cursor/Continue.dev, task automática para Copilot, AGENTS.md para Codex. Ver [Changelog](#changelog).
+**Real savings: ~97.7% tokens** per query — measured against the actual project index.
 
----
+![Token Savings](docs/token_savings.png)
 
-## Como funciona
-
-Assistentes como Claude Code e Copilot têm limite de contexto (tokens). Quanto maior o projeto, mais código irrelevante entra na janela, e as respostas ficam genéricas.
-
-O `lens` resolve em três etapas:
-
-**0. Setup — uma vez por projeto**
-`lens setup` detecta qual assistente você usa e configura tudo:
-- Claude Code recebe um MCP server que consulta o índice automaticamente.
-- Copilot recebe uma task do VS Code que injeta contexto antes de cada sessão.
-- Codex recebe um `AGENTS.md` com instrução para usar o índice.
-
-Depois do setup: nenhum passo manual.
-
-**1. Indexação — uma vez por projeto**
-Lê todos os arquivos e extrai só os símbolos: funções, classes, parâmetros, docstrings, número de linha. Salva num banco SQLite local em `.ctx/index.db`.
-
-**2. Na hora da pergunta**
-Busca no índice os símbolos mais relevantes em ~0,2ms (sem ler disco) e monta um contexto focado dentro do orçamento de tokens. O assistente recebe só o trecho certo — automaticamente.
-
-```
-Sem lens:  assistente lê store.py + builder.py + search.py + ...  →  18.828 tokens
-Com lens:  "fix bug in upsert_file"                               →   3.320 tokens  (82% menos)
-```
-
-O índice fica em `.ctx/` dentro de cada projeto e é ignorado pelo git.
+> **v2.0 — Primary target: GitHub Copilot** — fully tested with `@lens` chat participant, `Ctrl+Shift+L` keybinding, real-time VS Code extension dashboard. Other integrations (Claude Code, Cursor, Codex) use the MCP server and are in **alpha** — the core engine works but end-to-end UX in those tools hasn't been exhaustively tested yet.
 
 ---
 
-## Instalação
+## How it works
 
-**Pré-requisito:** Python 3.10 ou superior.
+AI assistants like Claude Code and Copilot have context limits (tokens). The bigger the project, the more irrelevant code fills the window, and responses become generic.
+
+`lens` solves this in three steps:
+
+**0. Setup — once per project**
+`lens setup` detects your AI assistant and configures everything:
+- Claude Code gets an MCP server that queries the index automatically.
+- Copilot gets a VS Code task that injects context before each session.
+- Codex gets an `AGENTS.md` with instructions to use the index.
+
+After setup: no manual steps.
+
+**1. Indexing — once per project**
+Reads all files and extracts only the symbols: functions, classes, parameters, docstrings, line numbers. Saves to a local SQLite database in `.ctx/index.db`.
+
+**2. At query time**
+Searches the FTS5 index for relevant symbols in ~0.2ms (no disk reads), assembles focused context within the token budget. The assistant receives only the right snippet — automatically.
+
+```
+Without lens:  reads all 123 indexed files                                    →  264,967 tokens
+With lens:     "fix walker module to handle symlinks"  (5 files selected)  →    6,859 tokens  (97.4% less)
+```
+
+> Numbers from `bench/proof_savings.py` run against the context-lens project itself.
+
+The index lives in `.ctx/` inside each project and is ignored by git.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  AI Assistant (Claude / Copilot / Cursor / Codex)           │
+│  ↕ MCP stdio                                                │
+├─────────────────────────────────────────────────────────────┤
+│  MCP Server (lens-mcp)                                       │
+│  8 tools: search, context, status, symbols, explain_symbol, │
+│           diff_context, reindex, memory                      │
+│  4 resources: project/map, project/stats, symbols/{path},   │
+│               memory                                         │
+├─────────────────────────────────────────────────────────────┤
+│  Core Engine                                                 │
+│  ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌──────────────┐  │
+│  │ Indexer   │ │ Retrieval │ │ Context  │ │ Session/Log  │  │
+│  │ walker    │ │ FTS5      │ │ builder  │ │ JSONL logger │  │
+│  │ extractor │ │ intent    │ │ budget   │ │ SQLite v4    │  │
+│  │ hasher    │ │ policy    │ │ levels   │ │ sessions     │  │
+│  │ parser    │ │ search    │ │ ranking  │ │ memory_lite  │  │
+│  └──────────┘ └───────────┘ └──────────┘ └──────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│  SQLite + FTS5 (.ctx/index.db)                              │
+│  Tables: files, symbols, symbols_fts, project_map,          │
+│          project_meta, memory_lite, sessions                 │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  VS Code Extension (context-lens)                            │
+│  Activity Bar sidebar · real-time dashboard                  │
+│  FileSystemWatcher on .ctx/ (log, config, stats, session)   │
+│  Toggle ON/OFF · re-index · session tracking                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Installation
+
+**Prerequisite:** Python 3.10+.
 
 ```bash
-# Com suporte a tree-sitter (recomendado — parsing preciso)
+# With tree-sitter (recommended — precise parsing)
 pip install "context-lens[parse]"
 
-# Com MCP server (para Claude Code e Continue.dev automáticos)
+# With MCP server (for Claude Code, Cursor, Continue.dev)
 pip install "context-lens[parse,mcp]"
+
+# Everything (parsing + MCP + tiktoken + file watch)
+pip install "context-lens[all,mcp]"
 ```
 
-Verificar:
+Verify:
 
 ```bash
 lens --version
 ```
 
-> **Windows:** se `lens` não for reconhecido após instalar, adicione o diretório de scripts ao PATH:
+> **Windows:** if `lens` is not recognized after install, add the scripts directory to PATH:
 > ```powershell
 > [Environment]::SetEnvironmentVariable("PATH",
 >   [Environment]::GetEnvironmentVariable("PATH","User") + ";$env:LOCALAPPDATA\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\Scripts",
 >   "User")
 > ```
-> Feche e reabra o terminal.
+> Close and reopen the terminal.
 
-**Do código-fonte:**
+**From source:**
 
 ```bash
 git clone https://github.com/TiagoSchr/context-lens
@@ -73,286 +118,278 @@ cd context-lens
 pip install -e ".[parse,mcp]"
 ```
 
-**Desinstalar:**
+**Uninstall:**
 
 ```bash
 pip uninstall context-lens
-rm -rf .ctx/    # remove o índice do projeto (opcional)
+rm -rf .ctx/    # remove the project index (optional)
 ```
 
 ---
 
-## Início rápido
+## Quick start
 
-Três comandos para começar em qualquer projeto:
+Three commands to get started on any project:
 
 ```bash
 pip install "context-lens[parse,mcp]"
 lens index && lens setup --auto
 lens status
-# Pronto. Abra seu assistente de IA.
+# Done. Open your AI assistant.
 ```
 
 ---
 
-## Uso diário
+## VS Code Extension
 
-Após `lens setup --auto`, você não precisa mais abrir o terminal para usar o Context Lens.
+The Context Lens extension provides a **real-time dashboard** in the VS Code Activity Bar sidebar.
 
-| | Antes (v0.1) | Depois (v0.2) |
-|---|---|---|
-| Claude Code | `lens context "..."` → copiar → colar | Automático via MCP — nada a fazer |
-| GitHub Copilot | `Ctrl+Shift+L` → digitar query → abrir arquivo | Task automática ao abrir o projeto |
-| OpenAI Codex | `python scripts/lens-codex.py "..."` → clipboard | `AGENTS.md` direciona Codex automaticamente |
-| Cursor | Mesmo que Claude Code | Automático via MCP |
+![Context Lens Dashboard](docs/screenshot.png)
 
-**Uso manual via CLI** (para quem quer controle explícito sobre o contexto gerado):
+> **To add this screenshot:** save the sidebar image as `docs/screenshot.png` in the repo root.
+
+### Features
+
+- **Token economy cards** — total saved, average %, session savings
+- **Task breakdown** — savings per task type (explain, bugfix, refactor...)
+- **Tool breakdown** — economy per AI tool (Copilot, Claude, Cursor)
+- **Recent queries** — last 4 queries with task badges and savings
+- **Session tracking** — current MCP session name, query count, "⚡ 3min ago" live indicator
+- **Toggle ON/OFF** — disable/enable optimization with one click
+- **Re-index button** — trigger `lens index` from the sidebar
+- **Auto-refresh** — FileSystemWatcher on `.ctx/` files, zero polling
+
+### Install
+
+`lens install` **automatically installs the extension** for VS Code and Cursor (if they are in PATH):
+
+```bash
+lens install   # detects IDEs, installs extension + MCP config
+```
+
+Or install manually:
+
+```bash
+cd vscode-context-lens
+npm install
+npm run compile
+npx @vscode/vsce package --no-dependencies
+code --install-extension context-lens-1.0.0.vsix
+```
+
+The sidebar appears automatically when `.ctx/index.db` exists in the workspace.
+
+---
+
+## MCP Server
+
+The `lens-mcp` server exposes 8 tools and 4 resources via stdio MCP transport:
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `lens_search` | FTS5 symbol search by name or keyword |
+| `lens_context` | ⭐ Primary tool — assembles optimized context for a query |
+| `lens_status` | Index stats + token economy summary |
+| `lens_symbols` | All symbols in a specific file |
+| `lens_explain_symbol` | Deep dive: full source + callers + docstring |
+| `lens_diff_context` | Context focused on git-changed files |
+| `lens_reindex` | Trigger incremental reindex |
+| `lens_memory` | CRUD memory entries (rules, notes, hotspots) |
+
+### Resources
+
+| URI | Description |
+|-----|-------------|
+| `lens://project/map` | Project structure (level0) |
+| `lens://project/stats` | Index statistics (JSON) |
+| `lens://symbols/{path}` | Symbols for a specific file |
+| `lens://memory` | All memory entries |
+
+### Features
+
+- **Auto-detection** — detects Copilot, Cursor, Claude Code, Codex via env vars
+- **Per-tool budgets** — configurable in `.ctx/config.json` per detected tool
+- **Session tracking** — each MCP server lifetime = one session in SQLite
+- **Graceful shutdown** — sessions are closed and `session.json` cleaned up on exit
+- **Enabled flag** — respects the VS Code extension toggle for all data tools
+- **Context caching** — identical queries within 60s return cached results
+- **Realistic economy** — savings computed against included files, not entire project
+
+The server uses ~5MB RAM, responds in ~1ms, communicates via stdio (no HTTP, no open port).
+
+---
+
+## Using with GitHub Copilot (`@lens`)
+
+> `Ctrl+Shift+L` is exclusive to **GitHub Copilot in VS Code**. It opens the chat with `@lens` already typed — you just write your question.
+
+After `lens install`, the full flow is:
+
+```
+[focus in editor]  →  Ctrl+Shift+L  →  Copilot Chat opens with "@lens "  →  type your question  →  Enter
+```
+
+**Step by step:**
+
+1. With focus in the editor (not in another chat), press `Ctrl+Shift+L`
+2. Copilot Chat opens with `@lens ` already typed
+3. Continue typing your question: `@lens fix bug in checkout`
+4. Press Enter — `@lens` fetches the relevant context from the index and injects it automatically
+
+> **Important:** without `@lens` at the start, Copilot answers normally without optimized context.
+> `@lens` is what triggers the system — always start with it.
+
+> **Token savings:** every `@lens` query sends **~97% fewer tokens** to the AI compared to Copilot reading the files directly. The index selects only the 3–5 relevant files out of 123+ and injects just those — not the entire project. ([see benchmark](bench/proof_savings.py))
+
+**Example queries:**
+
+```
+@lens fix bug in the calculate_total method
+@lens how does the authentication system work
+@lens write tests for the Cart class
+@lens where is validate_coupon defined
+```
+
+**The shortcut won't work if:**
+- Focus is inside another chat (e.g. Claude, Codex) — click the editor first
+- The extension is not installed — run `lens install`
+- There is no index in the project — run `lens index`
+
+**Other tools (alpha):**
+
+| Tool | How it works |
+|------|-------------|
+| Claude Code | MCP server auto-injects context |
+| Cursor | MCP server auto-injects context |
+| OpenAI Codex | `AGENTS.md` directs Codex automatically |
+
+**Manual CLI** (explicit control):
 
 ```bash
 lens context "fix bug in checkout returning wrong total"
-lens context "como funciona o sistema de autenticação" -t explain
-lens context "escreva testes para a classe Cart" -t generate_test
-lens context "onde está definido calculate_discount" -t navigate
+lens context "how does the authentication system work" -t explain
+lens context "write tests for Cart class" -t generate_test
+lens context "where is calculate_discount defined" -t navigate
 ```
 
 ---
 
-## Setup por projeto
+## Setup per project
 
-O `lens` funciona **por projeto**, igual ao `git`. Para cada projeto novo:
+`lens` works **per project**, like `git`. For each new project:
 
 ```bash
-cd meu-novo-projeto/
-lens index          # cria .ctx/ aqui e indexa
-lens setup --auto   # configura todas as integrações detectadas, sem perguntas
-lens status         # confirma que está ativo e mostra economia projetada
+cd my-new-project/
+lens index          # creates .ctx/ here and indexes
+lens setup --auto   # configures all detected integrations silently
+lens status         # confirms it's active and shows economy
 ```
 
-`lens setup --auto` detecta qual ferramenta você usa (pasta `.claude/`, `.vscode/`, etc.) e cria os arquivos certos (`CLAUDE.md`, `.claude/mcp.json`, `.vscode/tasks.json`, `.github/copilot-instructions.md`, `AGENTS.md`) com as instruções para o assistente usar `lens_context` automaticamente — sem interação.
+`lens setup --auto` detects your tool (`.claude/`, `.vscode/`, etc.) and creates the right files (`CLAUDE.md`, `.claude/mcp.json`, `.vscode/tasks.json`, `.github/copilot-instructions.md`, `AGENTS.md`) with instructions for the assistant to use `lens_context` automatically.
 
 ```bash
-lens setup --auto   # recomendado — detecta e configura sem perguntar
-lens setup          # interativo — pergunta antes de cada integração
-```
-
-**Como confirmar que está ativo:**
-
-```
-  Context Lens  /  meu-projeto
-  ----------------------------------
-  47 files  312 symbols  280 KB  |  indexed 22/03 10:30  |  python(47)
-
-  -- Projected savings  (no queries yet)
-  Raw project  ~78,000 tokens  (312 KB  /  47 files)
-  Lens budget  8,000 tokens
-  Est. saving  ~90%  (~70,000 tokens por query)
-```
-
-Após as primeiras queries via MCP ou `lens context`, o status mostra a economia real acumulada.
-
-Se aparecer `Index not found`, rode `lens index`.
-
----
-
-## Integrações com assistentes de IA
-
-Guias detalhados por assistente:
-
-- [Claude Code](docs/claude-code.md) — MCP automático, slash commands
-- [GitHub Copilot](docs/copilot.md) — task automática + instructions
-- [ChatGPT / OpenAI Codex](docs/chatgpt-codex.md) — AGENTS.md automático ou clipboard
-- [Cursor](docs/cursor.md) — MCP nativo
-- [Continue.dev](docs/continue-dev.md) — MCP nativo, open source
-
----
-
-### Claude Code — 100% automático via MCP
-
-**Setup (uma vez):**
-```bash
-pip install "context-lens[parse,mcp]"
-cd seu-projeto/
-lens setup --auto   # cria .claude/mcp.json + CLAUDE.md automaticamente
-```
-
-A partir daí, o Claude Code consulta o índice automaticamente antes de responder qualquer pergunta sobre o código.
-
-O que acontece por baixo:
-- `lens_search` — busca símbolos relevantes pelo nome
-- `lens_context` — monta contexto otimizado para o tipo de tarefa detectado
-- `lens_status` — exibe economia acumulada de tokens
-
-O servidor usa ~5MB RAM, responde em ~1ms, comunica via stdio (sem HTTP, sem porta aberta).
-
-**Alternativa sem MCP** (Claude CLI apenas):
-```bash
-lens context "fix the bug in checkout" | pbcopy   # macOS
-lens context "fix the bug in checkout" | clip      # Windows
-```
-
-**Slash commands** disponíveis em `.claude/commands/`:
-```
-/ctx fix the bug in parse_file    ← gera e mostra o contexto
-/status                           ← economia de tokens
-/reindex                          ← re-indexa o projeto
-```
-
-> **Configuração manual** (alternativa ao `lens setup --auto`): crie `.claude/mcp.json` na raiz do projeto:
-> ```json
-> {
->   "mcpServers": {
->     "context-lens": {
->       "command": "lens-mcp",
->       "args": []
->     }
->   }
-> }
-> ```
-
----
-
-### GitHub Copilot (VS Code)
-
-**Setup (uma vez):**
-```bash
-lens setup --auto
-```
-
-Cria automaticamente:
-- `.vscode/tasks.json` com task de auto-index ao abrir o projeto
-- `.github/copilot-instructions.md` instruindo o Copilot a usar o índice
-
-**Como funciona após setup:**
-- Ao abrir o projeto no VS Code: índice é atualizado em background
-- Copilot consulta `.github/copilot-instructions.md` para cada sugestão
-- Contexto relevante já está disponível sem ação manual
-
-**Uso manual** (quando precisar forçar contexto específico):
-```bash
-python scripts/lens-context.py "fix bug in checkout" --target copilot
-# Gera .ctx/ctx.md e abre no VS Code — Copilot lê como contexto ativo
-```
-
-Atalho VS Code: `Ctrl+Shift+P` → "Tasks: Run Task" → "Context Lens: gerar contexto"
-
----
-
-### ChatGPT / OpenAI Codex
-
-**Modo automático (Codex CLI):**
-`lens setup --auto` cria `AGENTS.md` na raiz do projeto com instrução para o Codex usar `lens context` antes de iniciar qualquer tarefa. O Codex lê `AGENTS.md` automaticamente ao iniciar — zero config adicional.
-
-**Modo manual** (ChatGPT web / qualquer LLM):
-```bash
-python scripts/lens-codex.py "fix bug in checkout"
-# Copia contexto otimizado para clipboard → cole no chat
-```
-
-Windows alias rápido:
-```powershell
-doskey lc=python scripts/lens-codex.py $*
-```
-Uso: `lc "fix bug in checkout"` → clipboard pronto para colar.
-
----
-
-### Continue.dev (VS Code)
-
-O [Continue.dev](https://continue.dev) suporta MCP nativamente. O arquivo `.continue/config.json` já está incluído — basta instalar a extensão Continue no VS Code e o `lens-mcp` é detectado automaticamente.
-
----
-
-### Cursor
-
-`lens setup --auto` configura o MCP automaticamente. Para configuração manual, acesse Settings → MCP e adicione:
-```json
-{
-  "name": "context-lens",
-  "command": "lens-mcp",
-  "args": []
-}
+lens setup --auto   # recommended — detects and configures silently
+lens setup          # interactive — asks before each integration
 ```
 
 ---
 
-## Resumo de compatibilidade
+## AI assistant integrations
 
-| Assistente | Modo automático | Configuração |
-|------------|----------------|-------------|
-| Claude Code IDE/CLI | MCP server | `lens setup --auto` |
-| Cursor | MCP server | `lens setup --auto` |
-| Continue.dev (VS Code) | MCP server | `lens setup --auto` |
-| GitHub Copilot | VS Code task + instructions | `lens setup --auto` |
-| OpenAI Codex CLI | AGENTS.md | `lens setup --auto` |
-| ChatGPT web | Script + clipboard | `lc "query"` |
+Detailed guides per assistant:
+
+- [Claude Code](docs/claude-code.md) — Automatic MCP, slash commands
+- [GitHub Copilot](docs/copilot.md) — Automatic task + instructions
+- [ChatGPT / OpenAI Codex](docs/chatgpt-codex.md) — Automatic AGENTS.md or clipboard
+- [Cursor](docs/cursor.md) — Native MCP
+- [Continue.dev](docs/continue-dev.md) — Native MCP, open source
+
+### Compatibility matrix
+
+| Assistant | Status | Automatic mode | Configuration |
+|-----------|--------|---------------|---------------|
+| **GitHub Copilot** | ✅ **Tested** | `@lens` chat participant + `Ctrl+Shift+L` | `lens install` |
+| Claude Code IDE/CLI | ⚠️ Alpha | MCP server | `lens install` |
+| Cursor | ⚠️ Alpha | MCP server | `lens install` |
+| OpenAI Codex CLI | ⚠️ Alpha | AGENTS.md + MCP | `lens install` |
+| Continue.dev (VS Code) | ⚠️ Alpha | MCP server | `lens install` |
+| ChatGPT web | ⚠️ Alpha | Script + clipboard | `lc "query"` |
+
+> **Alpha** means the MCP server and config files are generated correctly, but the end-to-end experience in those tools hasn't been thoroughly tested. Contributions and feedback welcome.
 
 ---
 
-## Economia de tokens por tipo de tarefa
+## Token economy by task type
 
-| Tarefa | Quando usar | Economia típica |
-|--------|-------------|-----------------|
-| `navigate` | "onde está X definido?" | **86–98%** |
-| `generate_test` | "escreva testes para X" | **70–98%** |
-| `explain` | "como funciona X?" | **47–79%** |
-| `refactor` | "refatora X" | **74–80%** |
-| `bugfix` | "corrige bug em X" | **25–65%** |
+| Task | When to use | Typical savings |
+|------|-------------|-----------------|
+| `navigate` | "where is X defined?" | **60–85%** |
+| `generate_test` | "write tests for X" | **50–75%** |
+| `explain` | "how does X work?" | **40–65%** |
+| `refactor` | "refactor X" | **45–70%** |
+| `bugfix` | "fix bug in X" | **25–55%** |
 
-A tarefa é detectada automaticamente pela query. Use `-t` para forçar:
+Task is auto-detected from the query. Use `-t` to override:
 
 ```bash
 lens context "fix bug in checkout" -t bugfix --file src/cart.py
 ```
 
-`--file` força a inclusão de um arquivo específico — útil quando o bug cruza múltiplos arquivos.
+`--file` forces inclusion of a specific file — useful when the bug crosses multiple files.
+
+> **Note on savings metrics:** v2.0 computes savings against the **raw tokens of included files** (what the AI would read if it opened those files without optimization). This is a realistic baseline — not the entire project total.
 
 ---
 
-## Todos os comandos
+## All commands
 
 ```bash
-lens index                           # indexação incremental
-lens index --force                   # re-indexa tudo do zero
-lens index --verbose                 # mostra cada arquivo
-lens status                          # saúde + economia de tokens
-lens watch                           # monitora mudanças e re-indexa (background)
-lens stats                           # arquivos, símbolos, linguagens
-lens search "query"                  # busca símbolos
-lens context "query"                 # monta contexto (tarefa auto-detectada)
-lens context "query" -t bugfix       # tarefa explícita
-lens context "query" --file x.py    # força inclusão de arquivo
-lens context "query" --budget 12000  # orçamento customizado
-lens context "query" -o out.md      # salva em arquivo
-lens show map                        # mapa do projeto
-lens show symbol:nome                # detalhes de um símbolo
-lens show file:src/modulo.py         # símbolos de um arquivo
-lens log                             # histórico de queries e tokens
-lens log --last 10                   # últimas 10 queries
-lens memory list                     # lista memória do projeto
-lens memory set rule chave "valor"   # adiciona regra (aparece em todo contexto gerado)
-lens memory set hotspot arquivo "src/core.py"  # marca arquivo como crítico
-lens setup                           # configura integrações com assistentes de IA
-lens setup --auto                    # setup silencioso
-lens config                          # configuração atual
+lens index                           # incremental indexing
+lens index --force                   # re-index everything from scratch
+lens index --verbose                 # show each file
+lens status                          # health + token economy
+lens watch                           # monitor changes and re-index (background)
+lens stats                           # files, symbols, languages
+lens search "query"                  # search symbols
+lens context "query"                 # assemble context (task auto-detected)
+lens context "query" -t bugfix       # explicit task
+lens context "query" --file x.py     # force file inclusion
+lens context "query" --budget 12000  # custom budget
+lens context "query" -o out.md       # save to file
+lens show map                        # project map
+lens show symbol:name                # symbol details
+lens show file:src/module.py         # file symbols
+lens log                             # query and token history
+lens log --last 10                   # last 10 queries
+lens memory list                     # list project memory
+lens memory set rule key "value"     # add rule (appears in every generated context)
+lens memory set hotspot file "src/core.py"  # mark file as critical
+lens setup                           # configure AI assistant integrations
+lens setup --auto                    # silent setup
+lens config                          # current configuration
 ```
 
 ---
 
-## Estrutura criada no projeto
+## Project structure created
 
 ```
-seu-projeto/
+your-project/
   .ctx/
-    config.json     ← orçamento, extensões, dirs ignorados
-    index.db        ← banco SQLite com símbolos + FTS5
-    log.jsonl       ← histórico de queries e tokens
+    config.json     ← budget, extensions, ignored dirs
+    index.db        ← SQLite database with symbols + FTS5
+    log.jsonl       ← query and token history
+    stats.json      ← index stats for VS Code extension
+    session.json    ← current MCP session (auto-managed)
 ```
 
-Tudo em `.ctx/` é local e nunca vai para o git.
+Everything in `.ctx/` is local and never goes to git.
 
 ---
 
-## Configuração (`.ctx/config.json`)
+## Configuration (`.ctx/config.json`)
 
 ```json
 {
@@ -365,115 +402,120 @@ Tudo em `.ctx/` é local e nunca vai para o git.
   "budget_buffer": 0.12,
   "index_extensions": [".py", ".js", ".ts", ".tsx", ".go", ".rs"],
   "ignore_dirs": [".git", "node_modules", ".venv", "dist"],
-  "max_file_size_kb": 512
+  "max_file_size_kb": 512,
+  "enabled": true
 }
 ```
 
-Se `LENS_TARGET` estiver definido, o `token_budget` efetivo usa o valor de `target_budgets`.
+- `target_budgets` — per-tool budget overrides (auto-detected from env vars)
+- `budget_buffer` — 12% safety margin to avoid budget overrun
+- `enabled` — toggle via VS Code extension or manually (respected by all MCP data tools)
 
 ---
 
-## Linguagens suportadas
+## Supported languages
 
-| Linguagem | Parser | Extrai |
-|-----------|--------|--------|
-| Python | tree-sitter | funções, classes, decoradores, docstrings |
-| JavaScript | tree-sitter | funções, classes, métodos, arrow functions |
-| TypeScript / TSX | tree-sitter | igual JS + interfaces |
-| Go, Rust, Java, C, C++ | regex | funções, structs, classes |
-| Ruby, PHP, C#, Swift, Kotlin | regex | funções, classes |
+| Language | Parser | Extracts |
+|----------|--------|----------|
+| Python | tree-sitter | functions, classes, decorators, docstrings |
+| JavaScript | tree-sitter | functions, classes, methods, arrow functions |
+| TypeScript / TSX | tree-sitter | same as JS + interfaces |
+| Go, Rust, Java, C, C++ | regex | functions, structs, classes |
+| Ruby, PHP, C#, Swift, Kotlin | regex | functions, classes |
 
 ---
 
 ## Performance
 
-| Operação | Velocidade |
-|----------|-----------|
-| Indexação completa | ~320 arquivos/seg |
-| Re-index incremental (sem mudanças) | ~5.500 arquivos/seg |
-| Busca FTS5 | ~0,2ms |
-| Montagem de contexto | ~1–5ms |
-| RAM durante uso | ~3–5MB |
-| Escala | testado com 640 arquivos / 7.000 símbolos |
+| Operation | Speed |
+|-----------|-------|
+| Full indexing | ~320 files/sec |
+| Incremental re-index (no changes) | ~5,500 files/sec |
+| FTS5 search | ~0.2ms |
+| Context assembly | ~1–5ms |
+| RAM during use | ~3–5MB |
+| Scale | tested with 640 files / 7,000 symbols |
+
+---
+
+## SQLite schema (v4)
+
+| Table | Purpose |
+|-------|---------|
+| `files` | Tracked files with hash-based change detection |
+| `symbols` | Functions, classes, methods — with params, docstring, line range |
+| `symbols_fts` | FTS5 virtual table for full-text search |
+| `project_map` | Level0 project structure data |
+| `project_meta` | Key-value metadata (token counts, timestamps) |
+| `memory_lite` | Project rules, notes, hotspots (with optional TTL) |
+| `sessions` | MCP server session tracking (start/end timestamps) |
 
 ---
 
 ## Changelog
 
-### v0.2 — Março 2025
+### v2.0 — April 2025
 
-#### Mudança de paradigma: manual → automático
+#### Major release: VS Code extension + honest metrics + session tracking
 
-No v0.1, usar o Context Lens exigia rodar `lens context "..."` e copiar o resultado para o assistente em cada pergunta.
+**VS Code Extension — real-time dashboard**
+- Activity Bar sidebar with token economy cards, task/tool breakdown, recent queries
+- Session tracking — shows current MCP session name, query count, live "⚡ 3min ago" indicator
+- Toggle ON/OFF — disable/enable optimization with one click (writes to `.ctx/config.json`)
+- Re-index and refresh buttons
+- FileSystemWatcher on `.ctx/` — zero polling, instant updates
+- CSP nonce for security, `escHtml` everywhere to prevent XSS
 
-No v0.2, `lens setup --auto` configura todas as integrações detectadas de uma vez. Após o setup, o assistente busca contexto automaticamente — via MCP (Claude Code, Cursor, Continue.dev), via task automática do VS Code (Copilot) ou via `AGENTS.md` (Codex). O usuário não precisa abrir o terminal durante o trabalho normal.
+**MCP Server v2 — 8 tools + 4 resources**
+- `lens_diff_context` — context focused on git-changed files (now with retrieval logging)
+- `lens_explain_symbol` — full source + callers deep dive
+- `lens_memory` — CRUD memory entries via MCP
+- `lens_reindex` — now writes `stats.json` + updates `project_tokens_total` (mirrors CLI)
+- Auto-detection of Copilot, Cursor, Claude Code, Codex via environment variables
+- Per-tool budget overrides (`target_budgets` in config)
+- Context caching (60s TTL) for identical queries
+- Graceful shutdown — sessions closed, `session.json` cleaned up on exit
 
-#### Novidades
+**Honest token economy**
+- `tokens_raw` baseline changed from "entire project" to "raw tokens of included files"
+- Savings percentages now reflect realistic AI tool behavior
+- `enabled` flag respected by all data-retrieval tools (5/8), not just 2
 
-**`lens setup` — configuração automática multi-ferramenta**
-Novo comando que detecta qual assistente você usa e cria os arquivos de instrução certos automaticamente:
-- `.claude/` presente → cria `CLAUDE.md` + `.claude/mcp.json` para MCP automático
-- `.vscode/` presente → atualiza `tasks.json` + cria `.github/copilot-instructions.md`
-- Codex detectado → cria `AGENTS.md` na raiz
-- Nenhum dos dois → cria arquivos para todos
-```bash
-lens setup --auto    # recomendado — silencioso, sem perguntas
-lens setup           # interativo
-```
+**Session system (SQLite v4)**
+- Each MCP server lifetime = one session with start/end timestamps
+- Session ID propagated to all log entries for session-level analytics
+- `session.json` written for the VS Code extension, auto-cleaned on shutdown
+- Concurrent MCP servers no longer corrupt each other's sessions
 
-**`lens status` — projeção de economia desde o primeiro uso**
-Antes de rodar qualquer query, o status agora mostra a economia estimada com base no tamanho real do projeto:
-```
--- Projected savings  (no queries yet)
-Raw project  ~39,886 tokens  (155 KB  /  39 files)
-Lens budget  8,000 tokens
-Est. saving  ~80%  (~31,886 tokens por query)
-```
-Após a primeira query via MCP ou `lens context`, mostra a economia real acumulada.
+**Adaptive context ranking**
+- Files ranked by relevance score (query term density + symbol count + entry-point boost)
+- Budget-driven level selection: full source → skeleton → signatures (never truncates artificially)
+- Cross-file expansion for bugfix/refactor tasks (imports + callers)
+- Batch symbol queries — single `WHERE path IN (...)` instead of N+1 round-trips
 
-**Memória do projeto aparece no contexto gerado**
-`lens memory set` funcionava mas as regras e notas nunca chegavam ao assistente. Corrigido: o bloco `## Project Memory` agora é injetado em todo contexto gerado, consumindo budget de forma controlada.
-```bash
-lens memory set rule style "always use type hints"
-lens context "add new function"
-# → contexto inclui: [rule] style: always use type hints
-```
-
-#### Correções de bugs
-
-**`lens memory set` criava duplicatas ao invés de atualizar**
-Chamar `lens memory set rule key "valor"` duas vezes criava duas linhas idênticas no banco. Corrigido com `UNIQUE INDEX(kind, key)` + migração automática de banco existente + `ON CONFLICT DO UPDATE`.
-
-**Falha silenciosa no FTS5**
-Quando a busca full-text falhava (índice corrompido ou query inválida), o sistema caía para o fallback LIKE sem nenhum aviso. Agora emite `warnings.warn()` com o motivo antes de fazer o fallback.
-
-**`tree-sitter` versão mínima incorreta**
-`pyproject.toml` declarava `tree-sitter>=0.22` mas o código usa a API `QueryCursor` disponível apenas na 0.25+. Com versões 0.22–0.24 o parsing falhava silenciosamente. Corrigido para `>=0.25`.
-
-#### Melhorias de performance
-
-**N+1 queries eliminadas no assembler de contexto**
-O assembler chamava `store.get_symbols_for_file(path)` individualmente para cada arquivo relevante — um round-trip SQLite por arquivo. Substituído por `store.get_symbols_for_files(paths)` que faz um único `WHERE path IN (...)`. Em projetos com 10 arquivos relevantes: de 10 queries para 1.
-
-**`list_indexed_paths` com limite no SQL**
-`find_callers()` carregava todos os paths do projeto na memória para depois fatiar `[:60]`. Em projetos com 5.000+ arquivos isso era desnecessário. Agora usa `LIMIT N` diretamente no SQL.
+**363 Python tests + 59 TypeScript assertions**
 
 ---
 
-### v0.1 — Lançamento inicial
+### v0.2 — March 2025
 
-- Indexação incremental com SHA-1 (só re-indexa arquivos alterados)
-- Busca FTS5 com stop words e priorização de identificadores técnicos
-- Assembler de contexto budget-driven por nível (L0 mapa, L1 assinaturas, L2 skeleton, L3 source)
-- Políticas por tipo de tarefa (navigate, explain, bugfix, refactor, generate_test)
-- MCP server para Claude Code, Continue.dev e Cursor
-- Slash commands `/ctx`, `/status`, `/reindex`, `/search`
-- VS Code tasks para Copilot e ChatGPT (clipboard)
-- Memory Lite para hotspots, regras e notas de projeto
-- `lens watch` para re-indexação automática em background
+- `lens setup` — automatic multi-tool configuration
+- `lens status` — projected savings before first query
+- Project memory injected into generated context
+- Fixed: memory duplicates, FTS5 silent failure, tree-sitter version
+- N+1 queries eliminated in context assembler
+
+### v0.1 — Initial release
+
+- Incremental SHA-1 indexing
+- FTS5 search with stop words and technical identifier prioritization
+- Budget-driven context assembly by level (L0 map, L1 signatures, L2 skeleton, L3 source)
+- Task-specific policies (navigate, explain, bugfix, refactor, generate_test)
+- MCP server for Claude Code, Continue.dev and Cursor
+- Slash commands, VS Code tasks, Memory Lite
 
 ---
 
-## Licença
+## License
 
-MIT — veja [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

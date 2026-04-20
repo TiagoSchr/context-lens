@@ -28,6 +28,41 @@ def _fmt_symbol(row: sqlite3.Row) -> str:
     return "\n".join(parts)
 
 
+# ─────────────────────────────────────────────────────────────── file index
+
+def build_file_index(store: Any, max_symbols_per_file: int = 6) -> str:
+    """Build a compact index of ALL indexed files with key symbol names + lines.
+
+    This gives the model a complete map of every file in the project with
+    the most important symbols and their line numbers, so it can jump directly
+    to ``read_file(path, line)`` without needing ``grep_search`` or
+    ``file_search`` first.
+
+    Shows classes first, then functions/methods, up to *max_symbols_per_file*.
+    """
+    all_paths = store.list_indexed_paths()
+    if not all_paths:
+        return "=== FILE INDEX ===\n(no files indexed)"
+
+    lines = [f"=== FILE INDEX ({len(all_paths)} files) ==="]
+    for p in sorted(all_paths):
+        syms = store.get_symbols_for_file(p)
+        if not syms:
+            lines.append(f"  {p}")
+            continue
+        # Prioritize: classes first, then functions, then methods
+        priority = {"class": 0, "function": 1, "method": 2}
+        ranked = sorted(syms, key=lambda s: (priority.get(s["kind"], 9), s["start_line"]))
+        top = ranked[:max_symbols_per_file]
+        sym_str = ", ".join(f"{s['name']}:{s['start_line']}" for s in top)
+        extra = len(syms) - len(top)
+        if extra > 0:
+            sym_str += f" +{extra}"
+        lines.append(f"  {p} | {sym_str}")
+
+    return "\n".join(lines)
+
+
 # ─────────────────────────────────────────────────────────────── level0
 
 def build_level0(store: Any, root: Path) -> str:

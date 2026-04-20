@@ -53,15 +53,64 @@ def post_write() -> int:
     return 0
 
 
+def pre_read() -> int:
+    """Remind the AI model to call lens_context before reading files.
+
+    Checks if lens_context was called recently (last 2 minutes).
+    If not, prints a reminder that the model will see in its context.
+    Always returns 0 (allow the read to proceed).
+    """
+    import json
+    import time
+
+    root = Path.cwd()
+    log_file = root / ".ctx" / "log.jsonl"
+
+    if not log_file.exists():
+        return 0
+
+    threshold = time.time() - 120  # 2 minutes
+
+    try:
+        with open(log_file, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 4096))
+            tail = f.read().decode("utf-8", errors="replace")
+
+        for line in reversed(tail.strip().split("\n")):
+            try:
+                entry = json.loads(line)
+                if entry.get("event") == "retrieval" and entry.get("ts", 0) > threshold:
+                    return 0  # Recent lens_context call found — stay silent
+            except (json.JSONDecodeError, KeyError):
+                continue
+    except OSError:
+        return 0
+
+    # No recent lens_context call — print reminder for the model
+    import sys
+    print(
+        "⚠️ Context Lens: You MUST call the lens_context MCP tool BEFORE "
+        "reading files. It returns optimized context that saves 75-95% tokens. "
+        "Call lens_context(query=\"<your task>\") first, then only Read files "
+        "not covered by the context block.",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Silent helpers for Context Lens automation.")
-    parser.add_argument("action", choices=["ensure-index", "pre-bash", "post-write"])
+    parser.add_argument("action", choices=["ensure-index", "pre-bash", "post-write", "pre-read"])
     args = parser.parse_args(argv)
 
     if args.action == "ensure-index":
         return ensure_index()
     if args.action == "pre-bash":
         return pre_bash()
+    if args.action == "pre-read":
+        return pre_read()
     return post_write()
 
 

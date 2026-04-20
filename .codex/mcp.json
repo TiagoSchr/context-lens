@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "context-lens": {
+      "command": "lens-mcp",
+      "args": [
+        "--tool",
+        "codex"
+      ]
+    }
+  }
+}

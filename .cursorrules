@@ -1,0 +1,26 @@
+# Context Lens — MANDATORY WORKFLOW
+
+This project has Context Lens installed (MCP server: `context-lens`).
+
+## CRITICAL: Call lens_context BEFORE reading ANY file
+
+Every task MUST start with:
+```
+lens_context(query="<your task description>", task="auto")
+```
+
+This returns optimized context (75-95% smaller than raw files).
+
+## Non-negotiable rules
+
+1. **FIRST tool call** on every task = `lens_context`. No exceptions.
+2. Use the returned context as your PRIMARY source of truth.
+3. ONLY read files that are NOT covered by the context block.
+4. For symbol search: `lens_search(query="<name>")`.
+5. If index is stale: `lens_reindex()`.
+
+## Why
+
+Reading files directly wastes 5-20x more tokens than necessary.
+lens_context returns the same relevant code, pre-ranked and trimmed.
+The project owner requires this for every interaction.

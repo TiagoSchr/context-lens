@@ -1,23 +1,22 @@
 """
 Context assembler — budget-driven, never artificially truncates.
 
-Strategy per task:
+Strategy per task (v2: adaptive ranking):
   1. Level1 (all relevant signatures) — lightweight baseline, always first
-  2. For each relevant file in ranked order:
-       - Try full source (level3) — if fits in budget, include it entirely
-       - Else try skeleton (level2) — if fits, include it
-       - Else skip
-  3. Fill budget greedily until exhausted or all files covered
-
-This means: simple queries use few tokens, complex cross-file bugs
-use as much budget as needed — never cut off when budget allows.
+  2. Rank files by relevance score (query density + symbol count + entry-point boost)
+  3. For each ranked file:
+       - High-score files get full source (level3) first
+       - Mid-score files get skeleton (level2)
+       - If budget < 20% remaining, force level1-only for remaining files
+  4. Fill budget until exhausted — never cut off when budget allows.
 """
 from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
 from .budget import Budget
-from .levels import build_level0, build_level1, build_level2, build_level3, _read_source
+from .levels import build_level0, build_level1, build_level2, build_level3, build_file_index, _read_source
+from .ranking import rank_paths
 from ..retrieval.policy import POLICIES, TaskPolicy
 from ..retrieval.search import expand_paths_cross_file
 from ..memory.lite import format_context_block
@@ -61,6 +60,12 @@ def build_context(
             store, root, relevant_paths, relevant_symbols or [], max_expand=4
         )
 
+    # ── Adaptive ranking: order paths by relevance score ────────────────────
+    if relevant_paths:
+        relevant_paths = rank_paths(
+            relevant_paths, relevant_symbols or [], query
+        )
+
     # ── Header ──────────────────────────────────────────────────────────────
     header = f"# Context — task={task} | query={query[:80]}\n"
     b.consume(header)
@@ -78,6 +83,12 @@ def build_context(
         l0 = build_level0(store, root)
         if b.consume(l0):
             sections.append(l0)
+
+    # ── File index: compact listing of ALL files ─────────────────────────────
+    if policy.use_file_index:
+        fi = build_file_index(store)
+        if b.consume(fi):
+            sections.append(fi)
 
     # ── Level 1: assinaturas — foca nos arquivos relevantes ──────────────────
     if policy.use_level1:

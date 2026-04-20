@@ -142,12 +142,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[lens] target={target}", file=sys.stderr)
 
     try:
-        from ..config import find_project_root, load_config, db_path, log_path
+        from ..config import find_project_root, load_config, db_path, log_path, normalize_target_name
         from ..db.schema import init_db
         from ..db.store import Store
         from ..retrieval.intent import classify_intent
         from ..retrieval.search import search_symbols, find_related_paths
         from ..context.builder import build_context
+        from ..context.budget import compute_tokens_raw
         from ..log import CtxLogger
     except ImportError as exc:
         print(f"[erro] Nao foi possivel importar ctx: {exc}")
@@ -197,9 +198,21 @@ def main(argv: list[str] | None = None) -> int:
         budget=budget,
         buffer_ratio=cfg["budget_buffer"],
     )
-    _raw_str = store.get_meta("project_tokens_total")
-    _tokens_raw = int(_raw_str) if _raw_str else 0
-    logger.retrieval(task, relevant_paths, meta["tokens_used"], meta["budget"], tokens_raw=_tokens_raw)
+    _tokens_raw = compute_tokens_raw(
+        root,
+        meta.get("paths_included", []),
+        meta["tokens_used"],
+        meta["budget"],
+    )
+    logger.retrieval(
+        task,
+        relevant_paths,
+        meta["tokens_used"],
+        meta["budget"],
+        tokens_raw=_tokens_raw,
+        tool=normalize_target_name(budget_target) or budget_target,
+        query=args.query,
+    )
 
     ctx_dir = root / ".ctx"
     ctx_dir.mkdir(parents=True, exist_ok=True)

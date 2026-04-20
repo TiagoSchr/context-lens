@@ -1,0 +1,188 @@
+{
+  "name": "context-lens",
+  "displayName": "Context Lens",
+  "description": "Real-time token economy dashboard for Context Lens — see how many tokens you save on every AI query, toggle optimization on/off, and manage your codebase index.",
+  "version": "1.0.0",
+  "publisher": "TiagoSchr",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TiagoSchr/context-lens"
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": ["Other", "Programming Languages"],
+  "keywords": ["context-lens", "tokens", "ai", "llm", "copilot", "claude", "token-economy"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "context-lens",
+          "title": "Context Lens",
+          "icon": "images/icon-activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "context-lens": [
+        {
+          "type": "webview",
+          "id": "contextLens.sidebar",
+          "name": "Token Economy"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "contextLens.toggle",
+        "title": "Context Lens: Toggle Optimization On/Off",
+        "icon": "$(circuit-board)"
+      },
+      {
+        "command": "contextLens.refresh",
+        "title": "Context Lens: Refresh Stats",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "contextLens.runIndex",
+        "title": "Context Lens: Run lens index",
+        "icon": "$(database)"
+      },
+      {
+        "command": "contextLens.openConfig",
+        "title": "Context Lens: Open Config",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "contextLens.openChat",
+        "title": "Context Lens: Ask with Optimized Context",
+        "icon": "$(comment-discussion)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "contextLens.openChat",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l",
+        "when": "editorFocus || !inputFocus"
+      },
+      {
+        "command": "-editor.action.selectHighlights",
+        "key": "ctrl+shift+l"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "contextLens.refresh",
+          "when": "view == contextLens.sidebar",
+          "group": "navigation@1"
+        },
+        {
+          "command": "contextLens.runIndex",
+          "when": "view == contextLens.sidebar",
+          "group": "navigation@2"
+        },
+        {
+          "command": "contextLens.openConfig",
+          "when": "view == contextLens.sidebar",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "chatParticipants": [
+      {
+        "id": "context-lens.lens",
+        "fullName": "Context Lens",
+        "name": "lens",
+        "description": "Token-optimized codebase context. Ask questions about your code with 75-95% fewer tokens.",
+        "isSticky": true,
+        "commands": [
+          { "name": "context", "description": "Get optimized codebase context for a query" },
+          { "name": "search", "description": "Search for symbols by name" },
+          { "name": "status", "description": "Check index health and stats" }
+        ]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "lens_context",
+        "displayName": "Context Lens — Optimized Context",
+        "modelDescription": "Get optimized codebase context for a query. Returns relevant function signatures, code skeletons, and cross-references ranked by importance. Useful when you need to understand how multiple files interact, or find the right code for a task across many files.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "lens_context",
+        "icon": "$(circuit-board)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "description": "What you want to know about the codebase" },
+            "task": { "type": "string", "description": "Task type: code, debug, review, doc, or auto", "default": "auto" },
+            "budget": { "type": "number", "description": "Max tokens to return", "default": 8000 }
+          },
+          "required": ["query"]
+        }
+      },
+      {
+        "name": "lens_search",
+        "displayName": "Context Lens — Symbol Search",
+        "modelDescription": "Search for code symbols (functions, classes, variables) by name in the indexed codebase.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "lens_search",
+        "icon": "$(search)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "description": "Symbol name or partial name to search for" }
+          },
+          "required": ["query"]
+        }
+      }
+    ],
+    "configuration": {
+      "title": "Context Lens",
+      "properties": {
+        "contextLens.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show token savings in the status bar."
+        },
+        "contextLens.showCopilotTokens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show estimated Copilot Chat token usage in the sidebar (experimental)."
+        },
+        "contextLens.enableClaudeTracking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Watch ~/.claude/projects/<cwd>/*.jsonl transcripts for this workspace."
+        },
+        "contextLens.enableCodexTracking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Watch ~/.codex/sessions/**/rollout-*.jsonl rollouts for this workspace."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node -e \"const fs=require('fs');const f=fs.readdirSync('out').filter(x=>x.endsWith('.test.js'));let p=0,fl=0;f.forEach(t=>{try{require('./out/'+t);p++}catch(e){fl++;console.log('FAIL in '+t+': '+e.message)}});console.log('\\n'+p+' passed, '+fl+' failed');if(fl)process.exit(1)\"",
+    "lint": "eslint src --ext ts",
+    "deploy": "npm run compile && powershell -Command \"Get-ChildItem out/*.js | Where-Object { $_.Name -notmatch '\\.test\\.js$' } | Copy-Item -Destination \\\"$env:USERPROFILE\\.vscode\\extensions\\context-lens.context-lens-1.0.0\\out\\\" -Force\" && echo Deployed!"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.96.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0"
+  }
+}

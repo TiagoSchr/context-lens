@@ -13,6 +13,7 @@ class TaskPolicy:
     use_level1: bool = True
     use_level2: bool = False
     use_level3: bool = False
+    use_file_index: bool = False
     level1_limit: int = 150
     level2_files: int = 2
     level2_body_lines: int = 10
@@ -72,5 +73,49 @@ POLICIES: dict[str, TaskPolicy] = {
         use_level2=False,
         use_level3=False,
         level1_limit=60,  # só os mais relevantes — FTS já ranqueia por relevância
+    ),
+    "document": TaskPolicy(
+        task="document",
+        use_level0=False,
+        use_level1=True,
+        use_level2=True,
+        use_level3=True,
+        level1_limit=40,
+        level2_files=2,
+        level2_body_lines=8,
+        level3_files=2,
+        level3_max_lines=200,
+    ),
+    "optimize": TaskPolicy(
+        task="optimize",
+        use_level0=False,
+        use_level1=True,
+        use_level2=True,
+        use_level3=True,
+        level1_limit=60,
+        level2_files=3,
+        level2_body_lines=20,
+        level3_files=2,
+        level3_max_lines=350,
+    ),
+    "security_review": TaskPolicy(
+        task="security_review",
+        use_level0=False,
+        use_level1=True,
+        use_level2=True,
+        use_level3=True,
+        level1_limit=80,
+        level2_files=5,
+        level2_body_lines=30,
+        level3_files=4,
+        level3_max_lines=400,
+    ),
+    "auto_overview": TaskPolicy(
+        task="auto_overview",
+        use_level0=True,
+        use_level1=False,
+        use_file_index=True,
+        use_level2=False,
+        use_level3=False,
     ),
 }

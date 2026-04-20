@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DDL = """
 PRAGMA journal_mode = WAL;
@@ -97,6 +97,14 @@ CREATE TABLE IF NOT EXISTS memory_lite (
 CREATE INDEX IF NOT EXISTS idx_memory_kind ON memory_lite(kind);
 CREATE INDEX IF NOT EXISTS idx_memory_key  ON memory_lite(key);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_kind_key ON memory_lite(kind, key);
+
+-- Sessions: each MCP server lifetime = one session
+CREATE TABLE IF NOT EXISTS sessions (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT    NOT NULL,
+    started_at REAL    NOT NULL,
+    ended_at   REAL    DEFAULT NULL
+);
 """
 
 
@@ -115,6 +123,17 @@ def _migrate(conn: "sqlite3.Connection", from_version: int) -> None:
     if from_version < 3:
         # project_meta table is created by the DDL above (CREATE TABLE IF NOT EXISTS)
         conn.execute("UPDATE schema_version SET version = 3")
+        conn.commit()
+    if from_version < 4:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sessions ("
+            "  id INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL,"
+            "  started_at REAL NOT NULL,"
+            "  ended_at REAL DEFAULT NULL"
+            ")"
+        )
+        conn.execute("UPDATE schema_version SET version = 4")
         conn.commit()
 
 
